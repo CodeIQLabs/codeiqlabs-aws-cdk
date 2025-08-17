@@ -1,0 +1,158 @@
+{
+  "name": "@codeiqlabs/aws-utils",
+  "version": "1.1.0",
+  "description": "AWS utilities including resource naming, configuration validation, and environment management for CodeIQLabs projects",
+  "sideEffects": false,
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./naming": {
+      "types": "./dist/naming/index.d.ts",
+      "default": "./dist/naming/index.js"
+    },
+    "./naming/*": {
+      "types": "./dist/naming/*.d.ts",
+      "default": "./dist/naming/*.js"
+    },
+    "./constants": {
+      "types": "./dist/constants/index.d.ts",
+      "default": "./dist/constants/index.js"
+    },
+    "./constants/*": {
+      "types": "./dist/constants/*.d.ts",
+      "default": "./dist/constants/*.js"
+    },
+    "./tagging": {
+      "types": "./dist/tagging/index.d.ts",
+      "default": "./dist/tagging/index.js"
+    },
+    "./tagging/*": {
+      "types": "./dist/tagging/*.d.ts",
+      "default": "./dist/tagging/*.js"
+    },
+    "./customization-config": {
+      "types": "./dist/customization-config/index.d.ts",
+      "default": "./dist/customization-config/index.js"
+    },
+    "./customization-config/*": {
+      "types": "./dist/customization-config/*.d.ts",
+      "default": "./dist/customization-config/*.js"
+    },
+    "./config": {
+      "types": "./dist/config/index.d.ts",
+      "default": "./dist/config/index.js"
+    },
+    "./config/schemas": {
+      "types": "./dist/config/schemas/index.d.ts",
+      "default": "./dist/config/schemas/index.js"
+    },
+    "./config/schemas/base": {
+      "types": "./dist/config/schemas/base/index.d.ts",
+      "default": "./dist/config/schemas/base/index.js"
+    },
+    "./config/schemas/resources": {
+      "types": "./dist/config/schemas/resources/index.d.ts",
+      "default": "./dist/config/schemas/resources/index.js"
+    },
+    "./config/schemas/applications": {
+      "types": "./dist/config/schemas/applications/index.d.ts",
+      "default": "./dist/config/schemas/applications/index.js"
+    },
+    "./config/utils": {
+      "types": "./dist/config/utils/index.d.ts",
+      "default": "./dist/config/utils/index.js"
+    },
+    "./cdk": {
+      "types": "./dist/cdk/index.d.ts",
+      "default": "./dist/cdk/index.js"
+    },
+    "./helpers": {
+      "types": "./dist/helpers/index.d.ts",
+      "default": "./dist/helpers/index.js"
+    },
+    "./helpers/*": {
+      "types": "./dist/helpers/*.d.ts",
+      "default": "./dist/helpers/*.js"
+    }
+  },
+  "keywords": [
+    "aws",
+    "naming",
+    "codeiqlabs",
+    "infrastructure",
+    "typescript",
+    "utilities"
+  ],
+  "author": "CodeIQLabs",
+  "license": "MIT",
+  "scripts": {
+    "build": "npm run lint && tsc",
+    "build:no-lint": "tsc -p tsconfig.json",
+    "watch": "tsc -w",
+    "lint": "npx eslint .",
+    "lint:fix": "npx eslint . --fix",
+    "format": "prettier . --write",
+    "format:check": "prettier . --check",
+    "clean": "rimraf dist",
+    "prepublishOnly": "npm run clean && npm run build"
+  },
+  "files": [
+    "dist/",
+    "README.md"
+  ],
+  "peerDependencies": {
+    "aws-cdk-lib": "2.208.0",
+    "constructs": "^10.0.0",
+    "typescript": ">=5.4.0 <6.0.0"
+  },
+  "devDependencies": {
+    "@codeiqlabs/eslint-prettier-config": "file:../codeiqlabs-eslint-prettier-config",
+    "@types/js-yaml": "^4.0.9",
+    "@types/node": "^20.4.5",
+    "@typescript-eslint/eslint-plugin": "^8.39.1",
+    "@typescript-eslint/parser": "^8.39.1",
+    "eslint": "^9.33.0",
+    "prettier": "^3.0.0",
+    "rimraf": "^5.0.0",
+    "typescript": "^5.4.0"
+  },
+  "typesVersions": {
+    "*": {
+      "naming": [
+        "dist/naming/index.d.ts"
+      ],
+      "naming/*": [
+        "dist/naming/*"
+      ],
+      "customization-config": [
+        "dist/customization-config/index.d.ts"
+      ],
+      "customization-config/*": [
+        "dist/customization-config/*"
+      ],
+      "config": [
+        "dist/config/index.d.ts"
+      ],
+      "helpers": [
+        "dist/helpers/index.d.ts"
+      ],
+      "helpers/*": [
+        "dist/helpers/*"
+      ],
+      "validation": [
+        "dist/validation/index.d.ts"
+      ],
+      "validation/*": [
+        "dist/validation/*"
+      ]
+    }
+  },
+  "dependencies": {
+    "js-yaml": "^4.1.0",
+    "zod": "^3.25.76"
+  }
+}
