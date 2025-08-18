@@ -5,15 +5,8 @@
 import type { Construct } from 'constructs';
 import * as ssm from 'aws-cdk-lib/aws-ssm';
 import { SecretValue } from 'aws-cdk-lib';
-import type {
-  NamingInput,
-  SSMStringParamOpts,
-  SSMBatchParamOpts
-} from './types';
-import {
-  resolveNaming,
-  sanitizeForConstructId
-} from './types';
+import type { NamingInput, SSMStringParamOpts, SSMBatchParamOpts } from './types';
+import { resolveNaming, sanitizeForConstructId } from './types';
 
 /**
  * Build SSM parameter name following CodeIQLabs naming conventions
@@ -33,9 +26,16 @@ export function buildSsmParameterName(naming: NamingInput, category: string, nam
 export function createStringParameter(
   scope: Construct,
   naming: NamingInput,
-  opts: SSMStringParamOpts
+  opts: SSMStringParamOpts,
 ): ssm.StringParameter {
-  const { category, name, value, description, idPrefix = 'SSMParam', tier = ssm.ParameterTier.STANDARD } = opts;
+  const {
+    category,
+    name,
+    value,
+    description,
+    idPrefix = 'SSMParam',
+    tier = ssm.ParameterTier.STANDARD,
+  } = opts;
 
   if (value == null) throw new Error(`value is required for ${category}/${name}`);
 
@@ -46,7 +46,7 @@ export function createStringParameter(
     parameterName,
     stringValue: value,
     description,
-    tier
+    tier,
   });
 }
 
@@ -56,7 +56,7 @@ export function createStringParameter(
 export function createStringParameters(
   scope: Construct,
   naming: NamingInput,
-  opts: SSMBatchParamOpts
+  opts: SSMBatchParamOpts,
 ): ssm.StringParameter[] {
   const { category, parameters, descriptionPrefix, idPrefix, tier } = opts;
 
@@ -67,8 +67,8 @@ export function createStringParameters(
       value,
       description: `${descriptionPrefix} ${name}`,
       idPrefix,
-      tier
-    })
+      tier,
+    }),
   );
 }
 
@@ -82,6 +82,10 @@ export function readSecureStringValue(parameterName: string, version?: string) {
 /**
  * Generate construct ID for SSM parameter
  */
-export function generateSsmConstructId(category: string, name: string, prefix = 'SSMParam'): string {
+export function generateSsmConstructId(
+  category: string,
+  name: string,
+  prefix = 'SSMParam',
+): string {
   return `${prefix}${sanitizeForConstructId(category)}${sanitizeForConstructId(name)}`;
 }

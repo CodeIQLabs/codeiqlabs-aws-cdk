@@ -1,9 +1,9 @@
 /**
  * Level 2 CDK Abstractions for CodeIQLabs projects
- * 
+ *
  * These are higher-level constructs that combine multiple L1 abstractions
  * to create complete application patterns and infrastructure blueprints.
- * 
+ *
  * Examples of future L2 abstractions:
  * - Complete web application stacks (S3 + CloudFront + API Gateway)
  * - Database clusters with monitoring and backup

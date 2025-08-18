@@ -11,10 +11,10 @@ export type {
   NamingInput,
   BaseParamOpts,
   StringParamOpts,
-  BatchParamOpts
-} from '@codeiqlabs/aws-utils/naming/types';
+  BatchParamOpts,
+} from '@codeiqlabs/aws-utils';
 
-export { resolveNaming, sanitizeForConstructId } from '@codeiqlabs/aws-utils/naming/types';
+export { resolveNaming, sanitizeForConstructId } from '@codeiqlabs/aws-utils';
 
 // Override the BaseParamOpts to use the proper SSM ParameterTier type
 export interface SSMBaseParamOpts {

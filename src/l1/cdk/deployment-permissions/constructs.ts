@@ -1,6 +1,6 @@
 /**
  * CDK Constructs for Deployment Permissions resources
- * 
+ *
  * This module provides high-level CDK constructs that encapsulate the creation
  * of deployment permission resources with standardized naming, tagging, and output patterns.
  */
@@ -8,7 +8,7 @@
 import * as cdk from 'aws-cdk-lib';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import { Construct } from 'constructs';
-import { generateStandardTags } from '../../../common/tagging/functions';
+import { generateStandardTags } from '@codeiqlabs/aws-utils';
 import { createDeploymentParameter } from '../ssm/convenience';
 import type {
   DeploymentPermissionsConstructProps,
@@ -23,17 +23,17 @@ import type {
 
 /**
  * High-level construct for deployment permissions
- * 
+ *
  * This construct creates cross-account roles and GitHub OIDC providers/roles
  * for deploying to workload accounts with consistent naming and tagging.
  */
 export class DeploymentPermissionsConstruct extends Construct {
   /** Cross-account role result (if created) */
   public readonly crossAccountRole?: CrossAccountRoleResult;
-  
+
   /** GitHub OIDC provider result (if created) */
   public readonly githubOidcProvider?: GitHubOidcProviderResult;
-  
+
   /** GitHub OIDC role result (if created) */
   public readonly githubOidcRole?: GitHubOidcRoleResult;
 
@@ -62,11 +62,15 @@ export class DeploymentPermissionsConstruct extends Construct {
 
     // Create GitHub OIDC provider and role if enabled
     if (config.githubOidc?.enabled) {
-      const githubOidcProviderConstruct = new GitHubOidcProviderConstruct(this, 'GitHubOidcProvider', {
-        naming,
-        createSsmParameters: props.createSsmParameters,
-        createOutputs: props.createOutputs,
-      });
+      const githubOidcProviderConstruct = new GitHubOidcProviderConstruct(
+        this,
+        'GitHubOidcProvider',
+        {
+          naming,
+          createSsmParameters: props.createSsmParameters,
+          createOutputs: props.createOutputs,
+        },
+      );
       this.githubOidcProvider = githubOidcProviderConstruct.getResult();
 
       const githubOidcRoleConstruct = new GitHubOidcRoleConstruct(this, 'GitHubOidcRole', {
@@ -99,10 +103,10 @@ export class DeploymentPermissionsConstruct extends Construct {
 export class CrossAccountRoleConstruct extends Construct {
   /** The created IAM role */
   public readonly role: iam.Role;
-  
+
   /** The role ARN */
   public readonly arn: string;
-  
+
   /** The role name */
   public readonly name: string;
 
@@ -118,7 +122,9 @@ export class CrossAccountRoleConstruct extends Construct {
     this.role = new iam.Role(this, 'Role', {
       roleName: this.name,
       assumedBy: new iam.AccountPrincipal(managementAccount.accountId),
-      maxSessionDuration: config.sessionDuration ? cdk.Duration.parse(config.sessionDuration) : cdk.Duration.hours(1),
+      maxSessionDuration: config.sessionDuration
+        ? cdk.Duration.parse(config.sessionDuration)
+        : cdk.Duration.hours(1),
       description: `Cross-account deployment role for ${naming.getConfig().project} ${naming.getConfig().environment}`,
     });
 
@@ -126,33 +132,35 @@ export class CrossAccountRoleConstruct extends Construct {
 
     // Add comprehensive deployment permissions
     this.role.addManagedPolicy(iam.ManagedPolicy.fromAwsManagedPolicyName('PowerUserAccess'));
-    
+
     // Add additional IAM permissions needed for CDK deployments
-    this.role.addToPolicy(new iam.PolicyStatement({
-      effect: iam.Effect.ALLOW,
-      actions: [
-        'iam:CreateRole',
-        'iam:DeleteRole',
-        'iam:UpdateRole',
-        'iam:AttachRolePolicy',
-        'iam:DetachRolePolicy',
-        'iam:PutRolePolicy',
-        'iam:DeleteRolePolicy',
-        'iam:GetRole',
-        'iam:GetRolePolicy',
-        'iam:ListRolePolicies',
-        'iam:ListAttachedRolePolicies',
-        'iam:PassRole',
-        'iam:TagRole',
-        'iam:UntagRole',
-        'iam:CreateInstanceProfile',
-        'iam:DeleteInstanceProfile',
-        'iam:AddRoleToInstanceProfile',
-        'iam:RemoveRoleFromInstanceProfile',
-        'iam:GetInstanceProfile',
-      ],
-      resources: ['*'],
-    }));
+    this.role.addToPolicy(
+      new iam.PolicyStatement({
+        effect: iam.Effect.ALLOW,
+        actions: [
+          'iam:CreateRole',
+          'iam:DeleteRole',
+          'iam:UpdateRole',
+          'iam:AttachRolePolicy',
+          'iam:DetachRolePolicy',
+          'iam:PutRolePolicy',
+          'iam:DeleteRolePolicy',
+          'iam:GetRole',
+          'iam:GetRolePolicy',
+          'iam:ListRolePolicies',
+          'iam:ListAttachedRolePolicies',
+          'iam:PassRole',
+          'iam:TagRole',
+          'iam:UntagRole',
+          'iam:CreateInstanceProfile',
+          'iam:DeleteInstanceProfile',
+          'iam:AddRoleToInstanceProfile',
+          'iam:RemoveRoleFromInstanceProfile',
+          'iam:GetInstanceProfile',
+        ],
+        resources: ['*'],
+      }),
+    );
 
     // Apply standard tags
     const tags = generateStandardTags(naming.getConfig(), {
@@ -178,7 +186,7 @@ export class CrossAccountRoleConstruct extends Construct {
         naming,
         'cross-account-role-arn',
         this.arn,
-        `Cross-account deployment role ARN for ${naming.getConfig().project} ${naming.getConfig().environment}`
+        `Cross-account deployment role ARN for ${naming.getConfig().project} ${naming.getConfig().environment}`,
       );
     }
   }
@@ -201,7 +209,7 @@ export class CrossAccountRoleConstruct extends Construct {
 export class GitHubOidcProviderConstruct extends Construct {
   /** The created OIDC provider */
   public readonly provider: iam.OpenIdConnectProvider;
-  
+
   /** The provider ARN */
   public readonly arn: string;
 
@@ -243,7 +251,7 @@ export class GitHubOidcProviderConstruct extends Construct {
         naming,
         'github-oidc-provider-arn',
         this.arn,
-        `GitHub OIDC provider ARN for ${naming.getConfig().project} ${naming.getConfig().environment}`
+        `GitHub OIDC provider ARN for ${naming.getConfig().project} ${naming.getConfig().environment}`,
       );
     }
   }
@@ -303,31 +311,33 @@ export class GitHubOidcRoleConstruct extends Construct {
     // Add the same permissions as cross-account role
     this.role.addManagedPolicy(iam.ManagedPolicy.fromAwsManagedPolicyName('PowerUserAccess'));
 
-    this.role.addToPolicy(new iam.PolicyStatement({
-      effect: iam.Effect.ALLOW,
-      actions: [
-        'iam:CreateRole',
-        'iam:DeleteRole',
-        'iam:UpdateRole',
-        'iam:AttachRolePolicy',
-        'iam:DetachRolePolicy',
-        'iam:PutRolePolicy',
-        'iam:DeleteRolePolicy',
-        'iam:GetRole',
-        'iam:GetRolePolicy',
-        'iam:ListRolePolicies',
-        'iam:ListAttachedRolePolicies',
-        'iam:PassRole',
-        'iam:TagRole',
-        'iam:UntagRole',
-        'iam:CreateInstanceProfile',
-        'iam:DeleteInstanceProfile',
-        'iam:AddRoleToInstanceProfile',
-        'iam:RemoveRoleFromInstanceProfile',
-        'iam:GetInstanceProfile',
-      ],
-      resources: ['*'],
-    }));
+    this.role.addToPolicy(
+      new iam.PolicyStatement({
+        effect: iam.Effect.ALLOW,
+        actions: [
+          'iam:CreateRole',
+          'iam:DeleteRole',
+          'iam:UpdateRole',
+          'iam:AttachRolePolicy',
+          'iam:DetachRolePolicy',
+          'iam:PutRolePolicy',
+          'iam:DeleteRolePolicy',
+          'iam:GetRole',
+          'iam:GetRolePolicy',
+          'iam:ListRolePolicies',
+          'iam:ListAttachedRolePolicies',
+          'iam:PassRole',
+          'iam:TagRole',
+          'iam:UntagRole',
+          'iam:CreateInstanceProfile',
+          'iam:DeleteInstanceProfile',
+          'iam:AddRoleToInstanceProfile',
+          'iam:RemoveRoleFromInstanceProfile',
+          'iam:GetInstanceProfile',
+        ],
+        resources: ['*'],
+      }),
+    );
 
     // Apply standard tags
     const tags = generateStandardTags(naming.getConfig(), {
@@ -353,7 +363,7 @@ export class GitHubOidcRoleConstruct extends Construct {
         naming,
         'github-oidc-role-arn',
         this.arn,
-        `GitHub OIDC deployment role ARN for ${naming.getConfig().project} ${naming.getConfig().environment}`
+        `GitHub OIDC deployment role ARN for ${naming.getConfig().project} ${naming.getConfig().environment}`,
       );
     }
   }

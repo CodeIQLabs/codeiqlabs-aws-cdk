@@ -4,14 +4,14 @@
 
 import * as cdk from 'aws-cdk-lib';
 import type { Construct } from 'constructs';
-import type { ResourceNaming } from '@codeiqlabs/aws-utils/naming/convenience';
+import type { ResourceNaming } from '@codeiqlabs/aws-utils';
 
 /**
  * Common output categories for consistent naming
  */
-export type OutputCategory = 
+export type OutputCategory =
   | 'account'
-  | 'organization' 
+  | 'organization'
   | 'identity-center'
   | 'domain'
   | 'certificate'
@@ -42,12 +42,12 @@ export interface StandardOutputProps {
 
 /**
  * Create a standardized CloudFormation output with consistent naming
- * 
+ *
  * This function creates a CloudFormation output with:
  * - Automatic export name generation using ResourceNaming
  * - Consistent construct ID generation
  * - Standardized description patterns
- * 
+ *
  * @param scope - CDK construct scope
  * @param naming - ResourceNaming instance for consistent naming
  * @param props - Output configuration
@@ -56,16 +56,9 @@ export interface StandardOutputProps {
 export function createStandardOutput(
   scope: Construct,
   naming: ResourceNaming,
-  props: StandardOutputProps
+  props: StandardOutputProps,
 ): cdk.CfnOutput {
-  const {
-    key,
-    value,
-    description,
-    category,
-    exportName,
-    constructId,
-  } = props;
+  const { key, value, description, category, exportName, constructId } = props;
 
   // Generate export name using ResourceNaming
   const finalExportName = exportName ?? naming.exportName(key);
@@ -82,7 +75,7 @@ export function createStandardOutput(
 
 /**
  * Create multiple standardized outputs at once
- * 
+ *
  * @param scope - CDK construct scope
  * @param naming - ResourceNaming instance for consistent naming
  * @param outputs - Array of output configurations
@@ -91,14 +84,14 @@ export function createStandardOutput(
 export function createStandardOutputs(
   scope: Construct,
   naming: ResourceNaming,
-  outputs: StandardOutputProps[]
+  outputs: StandardOutputProps[],
 ): cdk.CfnOutput[] {
-  return outputs.map(props => createStandardOutput(scope, naming, props));
+  return outputs.map((props) => createStandardOutput(scope, naming, props));
 }
 
 /**
  * Create an account ID output with standardized naming
- * 
+ *
  * @param scope - CDK construct scope
  * @param naming - ResourceNaming instance
  * @param accountKey - Account key (e.g., 'budgettrack-np')
@@ -111,7 +104,7 @@ export function createAccountIdOutput(
   naming: ResourceNaming,
   accountKey: string,
   accountId: string,
-  accountName: string
+  accountName: string,
 ): cdk.CfnOutput {
   return createStandardOutput(scope, naming, {
     key: `${accountKey}-AccountId`,
@@ -123,7 +116,7 @@ export function createAccountIdOutput(
 
 /**
  * Create an Identity Center output with standardized naming
- * 
+ *
  * @param scope - CDK construct scope
  * @param naming - ResourceNaming instance
  * @param key - Output key (e.g., 'Instance-ARN', 'PermissionSet-Admin-Arn')
@@ -136,7 +129,7 @@ export function createIdentityCenterOutput(
   naming: ResourceNaming,
   key: string,
   value: string,
-  description: string
+  description: string,
 ): cdk.CfnOutput {
   return createStandardOutput(scope, naming, {
     key: `SSO-${key}`,
@@ -148,7 +141,7 @@ export function createIdentityCenterOutput(
 
 /**
  * Create an organization output with standardized naming
- * 
+ *
  * @param scope - CDK construct scope
  * @param naming - ResourceNaming instance
  * @param key - Output key (e.g., 'Root-ID', 'Workloads-OU-ID')
@@ -161,7 +154,7 @@ export function createOrganizationOutput(
   naming: ResourceNaming,
   key: string,
   value: string,
-  description: string
+  description: string,
 ): cdk.CfnOutput {
   return createStandardOutput(scope, naming, {
     key: `Org-${key}`,
@@ -173,7 +166,7 @@ export function createOrganizationOutput(
 
 /**
  * Generate a construct ID for an output
- * 
+ *
  * @param key - Output key
  * @param category - Optional category
  * @returns Sanitized construct ID

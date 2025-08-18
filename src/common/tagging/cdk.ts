@@ -1,21 +1,25 @@
 /**
- * CDK-specific tagging utilities for CodeIQLabs projects
+ * CDK-specific tagging utilities for AWS projects
  *
  * This module provides CDK-specific tag application functions that require aws-cdk-lib
- * to be available in the consuming project.
+ * to be available in the consuming project. Core tagging logic is imported from
+ * @codeiqlabs/aws-utils to maintain consistency and avoid duplication.
  */
 
 import type { Construct } from 'constructs';
 import type { Tags as CdkTags } from 'aws-cdk-lib';
-import type { NamingConfig } from "@codeiqlabs/aws-utils/naming/types";
-import type { TaggingOptions, ExtraTags } from "./types";
-import type { ResourceNaming } from "@codeiqlabs/aws-utils/naming/convenience";
-import { generateStandardTags, validateTag, convertToCfnTags } from "./functions";
+import type {
+  NamingConfig,
+  TaggingOptions,
+  ExtraTags,
+  ResourceNaming,
+} from '@codeiqlabs/aws-utils';
+import { generateStandardTags, convertToCfnTags } from '@codeiqlabs/aws-utils';
 
 // Dynamic import for CDK Tags to avoid requiring aws-cdk-lib at module level
 let Tags: typeof CdkTags;
 try {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
   Tags = require('aws-cdk-lib').Tags;
 } catch {
   // CDK not available - functions will throw runtime errors if called
@@ -28,7 +32,7 @@ try {
 
 /**
  * Safely add a tag to a CDK construct with validation
- * 
+ *
  * @param cdkTags - CDK Tags class
  * @param construct - CDK construct to tag
  * @param key - Tag key
@@ -38,32 +42,43 @@ export function safeAddTag(
   cdkTags: typeof CdkTags,
   construct: Construct,
   key: string,
-  value: unknown
+  value: unknown,
 ): void {
-  const validated = validateTag(key, value);
-  if (validated) {
-    cdkTags.of(construct).add(validated.key, validated.value);
+  // Basic validation - ensure key and value are strings and not empty
+  if (typeof key !== 'string' || key.trim() === '') {
+    console.warn(`Invalid tag key: ${key}. Skipping tag.`);
+    return;
   }
+
+  const stringValue = String(value);
+  if (stringValue.trim() === '') {
+    console.warn(`Invalid tag value for key "${key}": ${value}. Skipping tag.`);
+    return;
+  }
+
+  cdkTags.of(construct).add(key.trim(), stringValue.trim());
 }
 
 /**
  * Apply standardized tags to a CDK construct
- * This is the main function for applying CodeIQLabs standard tags to CDK resources
- * 
+ * This is the main function for applying enterprise standard tags to CDK resources
+ *
  * @param construct - CDK construct to tag
  * @param config - Naming configuration
- * @param options - Tagging options including component name
+ * @param options - Tagging options including component name, owner, and company
  * @param extraTags - Additional custom tags to apply
  */
 export function applyStandardTags(
   construct: Construct,
   config: NamingConfig,
-  options: TaggingOptions & { component: string },
-  extraTags?: ExtraTags
+  options: TaggingOptions & { component: string; owner: string; company: string },
+  extraTags?: ExtraTags,
 ): void {
   // Use the dynamically imported Tags
   if (!Tags) {
-    throw new Error('aws-cdk-lib is not available. Please install aws-cdk-lib to use CDK tagging functions.');
+    throw new Error(
+      'aws-cdk-lib is not available. Please install aws-cdk-lib to use CDK tagging functions.',
+    );
   }
 
   // Generate standard tags
@@ -85,25 +100,27 @@ export function applyStandardTags(
 /**
  * Apply standardized tags using ResourceNaming instance
  * This is a convenience function for projects already using ResourceNaming
- * 
+ *
  * @param construct - CDK construct to tag
  * @param naming - ResourceNaming instance
- * @param options - Tagging options including component name
+ * @param options - Tagging options including component name, owner, and company
  * @param extraTags - Additional custom tags to apply
  */
 export function applyStandardTagsWithNaming(
   construct: Construct,
-  naming: { getConfig(): NamingConfig; standardTags(options: TaggingOptions): any },
-  options: { component: string; application?: string },
-  extraTags?: ExtraTags
+  naming: ResourceNaming,
+  options: TaggingOptions & { component: string; owner: string; company: string },
+  extraTags?: ExtraTags,
 ): void {
   // Use the dynamically imported Tags
   if (!Tags) {
-    throw new Error('aws-cdk-lib is not available. Please install aws-cdk-lib to use CDK tagging functions.');
+    throw new Error(
+      'aws-cdk-lib is not available. Please install aws-cdk-lib to use CDK tagging functions.',
+    );
   }
 
-  // Generate tags using the naming instance
-  const standardTags = naming.standardTags(options);
+  // Generate tags using the naming instance's config
+  const standardTags = generateStandardTags(naming.getConfig(), options);
 
   // Apply standard tags with validation
   Object.entries(standardTags).forEach(([key, value]) => {
@@ -130,7 +147,7 @@ export function applyStandardTagsWithNaming(
  */
 export function applyStandardCfnTags(
   naming: ResourceNaming,
-  options?: TaggingOptions
+  options?: TaggingOptions,
 ): Array<{ key: string; value: string }> {
   const tags = generateStandardTags(naming.getConfig(), options);
   return convertToCfnTags(tags);

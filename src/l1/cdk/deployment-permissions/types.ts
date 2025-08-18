@@ -2,14 +2,14 @@
  * Type definitions for Deployment Permissions CDK constructs
  */
 
-import type { ResourceNaming } from '@codeiqlabs/aws-utils/naming/convenience';
-import type { 
+import type {
+  ResourceNaming,
   DeploymentPermissions,
   Project,
   ProjectEnvironment,
   CrossAccountRole,
   GitHubOidc,
-} from '@codeiqlabs/aws-utils/config';
+} from '@codeiqlabs/aws-utils';
 import * as iam from 'aws-cdk-lib/aws-iam';
 
 /**
