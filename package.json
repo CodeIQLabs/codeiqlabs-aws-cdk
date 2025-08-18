@@ -1,158 +1,96 @@
 {
-  "name": "@codeiqlabs/aws-utils",
-  "version": "1.1.0",
-  "description": "AWS utilities including resource naming, configuration validation, and environment management for CodeIQLabs projects",
-  "sideEffects": false,
-  "main": "dist/index.js",
-  "types": "dist/index.d.ts",
+  "name": "@codeiqlabs/aws-cdk",
+  "version": "1.0.0",
+  "description": "CodeIQLabs AWS CDK wrapper utilities for Level 1 and Level 2 abstractions",
+  "type": "module",
+  "main": "./dist/cjs/index.js",
+  "module": "./dist/esm/index.js",
+  "types": "./dist/index.d.ts",
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
-      "default": "./dist/index.js"
+      "import": "./dist/esm/index.js",
+      "require": "./dist/cjs/index.js"
     },
-    "./naming": {
-      "types": "./dist/naming/index.d.ts",
-      "default": "./dist/naming/index.js"
+    "./l1": {
+      "types": "./dist/l1/index.d.ts",
+      "import": "./dist/esm/l1/index.js",
+      "require": "./dist/cjs/l1/index.js"
     },
-    "./naming/*": {
-      "types": "./dist/naming/*.d.ts",
-      "default": "./dist/naming/*.js"
-    },
-    "./constants": {
-      "types": "./dist/constants/index.d.ts",
-      "default": "./dist/constants/index.js"
-    },
-    "./constants/*": {
-      "types": "./dist/constants/*.d.ts",
-      "default": "./dist/constants/*.js"
-    },
-    "./tagging": {
-      "types": "./dist/tagging/index.d.ts",
-      "default": "./dist/tagging/index.js"
-    },
-    "./tagging/*": {
-      "types": "./dist/tagging/*.d.ts",
-      "default": "./dist/tagging/*.js"
-    },
-    "./customization-config": {
-      "types": "./dist/customization-config/index.d.ts",
-      "default": "./dist/customization-config/index.js"
-    },
-    "./customization-config/*": {
-      "types": "./dist/customization-config/*.d.ts",
-      "default": "./dist/customization-config/*.js"
-    },
-    "./config": {
-      "types": "./dist/config/index.d.ts",
-      "default": "./dist/config/index.js"
-    },
-    "./config/schemas": {
-      "types": "./dist/config/schemas/index.d.ts",
-      "default": "./dist/config/schemas/index.js"
-    },
-    "./config/schemas/base": {
-      "types": "./dist/config/schemas/base/index.d.ts",
-      "default": "./dist/config/schemas/base/index.js"
-    },
-    "./config/schemas/resources": {
-      "types": "./dist/config/schemas/resources/index.d.ts",
-      "default": "./dist/config/schemas/resources/index.js"
-    },
-    "./config/schemas/applications": {
-      "types": "./dist/config/schemas/applications/index.d.ts",
-      "default": "./dist/config/schemas/applications/index.js"
-    },
-    "./config/utils": {
-      "types": "./dist/config/utils/index.d.ts",
-      "default": "./dist/config/utils/index.js"
-    },
-    "./cdk": {
-      "types": "./dist/cdk/index.d.ts",
-      "default": "./dist/cdk/index.js"
-    },
-    "./helpers": {
-      "types": "./dist/helpers/index.d.ts",
-      "default": "./dist/helpers/index.js"
-    },
-    "./helpers/*": {
-      "types": "./dist/helpers/*.d.ts",
-      "default": "./dist/helpers/*.js"
+    "./l2": {
+      "types": "./dist/l2/index.d.ts",
+      "import": "./dist/esm/l2/index.js",
+      "require": "./dist/cjs/l2/index.js"
     }
   },
-  "keywords": [
-    "aws",
-    "naming",
-    "codeiqlabs",
-    "infrastructure",
-    "typescript",
-    "utilities"
+  "files": [
+    "dist/**/*",
+    "README.md",
+    "LICENSE"
   ],
-  "author": "CodeIQLabs",
-  "license": "MIT",
   "scripts": {
-    "build": "npm run lint && tsc",
-    "build:no-lint": "tsc -p tsconfig.json",
-    "watch": "tsc -w",
+    "prepare": "husky",
     "lint": "npx eslint .",
     "lint:fix": "npx eslint . --fix",
     "format": "prettier . --write",
     "format:check": "prettier . --check",
+    "changeset": "changeset",
+    "changeset:version": "changeset version",
+    "changeset:status": "changeset status",
+    "changeset:check": "find .changeset -name '*.md' ! -name 'README.md' ! -name 'RELEASE_TEMPLATE.md' | wc -l",
     "clean": "rimraf dist",
-    "prepublishOnly": "npm run clean && npm run build"
+    "build:esm": "tsc -p tsconfig.esm.json",
+    "build:cjs": "tsc -p tsconfig.cjs.json",
+    "build:cjs:pkg": "node -e \"require('fs').mkdirSync('dist/cjs',{recursive:true});require('fs').writeFileSync('dist/cjs/package.json','{\\\"type\\\":\\\"commonjs\\\"}\\n')\"",
+    "build": "npm run clean && npm run build:esm && npm run build:cjs && npm run build:cjs:pkg && npm run lint",
+    "build:cjs:show": "tsc -p tsconfig.cjs.json --showConfig",
+    "test:load": "node tests/load-config.test.cjs",
+    "test:esm": "node tests/esm-import-test.mjs",
+    "test:all": "npm run test:load && npm run test:esm",
+    "prepublishOnly": "npm run build && npm run test:all",
+    "release": "changeset publish"
   },
-  "files": [
-    "dist/",
-    "README.md"
+  "keywords": [
+    "aws",
+    "cdk",
+    "codeiqlabs",
+    "infrastructure",
+    "typescript",
+    "wrappers"
   ],
-  "peerDependencies": {
-    "aws-cdk-lib": "2.208.0",
-    "constructs": "^10.0.0",
-    "typescript": ">=5.4.0 <6.0.0"
-  },
-  "devDependencies": {
-    "@codeiqlabs/eslint-prettier-config": "file:../codeiqlabs-eslint-prettier-config",
-    "@types/js-yaml": "^4.0.9",
-    "@types/node": "^20.4.5",
-    "@typescript-eslint/eslint-plugin": "^8.39.1",
-    "@typescript-eslint/parser": "^8.39.1",
-    "eslint": "^9.33.0",
-    "prettier": "^3.0.0",
-    "rimraf": "^5.0.0",
-    "typescript": "^5.4.0"
-  },
-  "typesVersions": {
-    "*": {
-      "naming": [
-        "dist/naming/index.d.ts"
-      ],
-      "naming/*": [
-        "dist/naming/*"
-      ],
-      "customization-config": [
-        "dist/customization-config/index.d.ts"
-      ],
-      "customization-config/*": [
-        "dist/customization-config/*"
-      ],
-      "config": [
-        "dist/config/index.d.ts"
-      ],
-      "helpers": [
-        "dist/helpers/index.d.ts"
-      ],
-      "helpers/*": [
-        "dist/helpers/*"
-      ],
-      "validation": [
-        "dist/validation/index.d.ts"
-      ],
-      "validation/*": [
-        "dist/validation/*"
-      ]
-    }
+  "author": "CodeIQLabs",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/CodeIQLabs/codeiqlabs-aws-cdk"
   },
   "dependencies": {
-    "js-yaml": "^4.1.0",
-    "zod": "^3.25.76"
+    "@codeiqlabs/aws-utils": "file:../codeiqlabs-aws-utils"
+  },
+  "devDependencies": {
+    "@changesets/cli": "^2.29.6",
+    "@codeiqlabs/eslint-prettier-config": "file:../codeiqlabs-eslint-prettier-config",
+    "@types/node": "^20.0.0",
+    "@typescript-eslint/eslint-plugin": "^8.39.1",
+    "@typescript-eslint/parser": "^8.39.1",
+    "aws-cdk": "2.123.0",
+    "aws-cdk-lib": "2.208.0",
+    "constructs": "^10.0.0",
+    "eslint": "^9.33.0",
+    "husky": "^9.0.0",
+    "lint-staged": "^15.0.0",
+    "prettier": "^3.0.0",
+    "rimraf": "^5.0.0",
+    "typescript": "^5.0.0"
+  },
+  "peerDependencies": {
+    "aws-cdk-lib": "2.208.0",
+    "constructs": "^10.0.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com"
   }
 }

@@ -1,0 +1,89 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  prettier:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build (so Prettier config exists)
+        run: npm run build
+
+      - name: Check formatting
+        run: npm run format:check
+
+  tests:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Test All
+        run: npm run test:all
+
+  changeset-check:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # Need full history to check for changesets
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Check for changeset
+        run: |
+          # Check if there are any changeset files in .changeset/ (excluding config.json and README.md)
+          CHANGESET_FILES=$(find .changeset -name "*.md" ! -name "README.md" ! -name "RELEASE_TEMPLATE.md" | wc -l)
+
+          if [ "$CHANGESET_FILES" -eq 0 ]; then
+            echo "❌ No changeset found. Please add a changeset for your changes:"
+            echo "   npm run changeset"
+            echo ""
+            echo "This ensures proper version management and release notes."
+            echo "See .changeset/RELEASE_TEMPLATE.md for guidance on writing good changesets."
+            exit 1
+          else
+            echo "✅ Found $CHANGESET_FILES changeset(s)"
+            echo "Changeset files:"
+            find .changeset -name "*.md" ! -name "README.md" ! -name "RELEASE_TEMPLATE.md" -exec basename {} \;
+          fi
