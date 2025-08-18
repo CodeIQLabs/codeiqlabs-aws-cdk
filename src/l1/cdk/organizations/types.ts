@@ -2,8 +2,12 @@
  * Type definitions for Organizations CDK constructs
  */
 
-import type { ResourceNaming } from '@codeiqlabs/aws-utils/naming/convenience';
-import type { OrganizationalUnitConfig, ConfigMode, AccountConfig } from '@codeiqlabs/aws-utils/config';
+import type {
+  ResourceNaming,
+  OrganizationalUnitConfig,
+  ConfigMode,
+  AccountConfig,
+} from '@codeiqlabs/aws-utils';
 
 /**
  * Props for the main OrganizationConstruct

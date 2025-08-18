@@ -18,6 +18,9 @@ coverage/
 .env.local
 .env.development.local
 .env.test.local
+
+# NPM configuration (contains sensitive tokens)
+.npmrc
 .env.production.local
 
 # IDE files
@@ -51,3 +54,5 @@ tmp/
 temp/
 
 *.js
+
+package-lock.json
