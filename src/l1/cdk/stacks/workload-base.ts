@@ -1,21 +1,21 @@
 /**
  * Base stack class for AWS Workload Account stacks
- * 
+ *
  * This module provides a reusable base stack class for workload account infrastructure.
  * It eliminates repetitive code for environment validation, naming initialization, and tagging
  * while ensuring all configuration comes from manifest files (no hardcoded values).
- * 
+ *
  * @example
  * ```typescript
  * import { WorkloadBaseStack, WorkloadBaseStackConfig } from '@codeiqlabs/aws-cdk';
- * 
+ *
  * const workloadConfig: WorkloadBaseStackConfig = {
  *   project: cfg.project,
  *   environment: cfg.environment,
  *   region: cfg.region,
  *   accountId: cfg.accountId,
  * };
- * 
+ *
  * export class DeploymentPermissionsStack extends WorkloadBaseStack {
  *   constructor(scope: Construct, id: string, props: DeploymentPermissionsStackProps) {
  *     super(scope, id, 'Deployment-Permissions', props);
@@ -27,7 +27,7 @@
 
 import * as cdk from 'aws-cdk-lib';
 import type { Construct } from 'constructs';
-import { ResourceNaming } from '@codeiqlabs/aws-utils/naming/convenience';
+import { ResourceNaming } from '@codeiqlabs/aws-utils';
 import { applyStandardTags } from '../index';
 
 /**
@@ -35,14 +35,18 @@ import { applyStandardTags } from '../index';
  * All values must come from manifest configuration - no hardcoded values allowed
  */
 export interface WorkloadBaseStackConfig {
-  /** Project name (e.g., 'CodeIQLabs', 'BudgetTrack') - from manifest */
+  /** Project name (e.g., 'MyProject', 'BudgetTrack') - from manifest */
   project: string;
-  /** Environment name (e.g., 'np', 'prod', 'nprd') - from manifest */
+  /** Environment name (e.g., 'nprd', 'prod') - from manifest */
   environment: string;
   /** AWS region - from manifest */
   region: string;
   /** AWS account ID - from manifest */
   accountId: string;
+  /** Owner name or team - from manifest */
+  owner: string;
+  /** Company/organization name - from manifest */
+  company: string;
 }
 
 /**
@@ -55,14 +59,14 @@ export interface WorkloadBaseStackProps extends cdk.StackProps {
 
 /**
  * Base stack class for Workload AWS stacks
- * 
+ *
  * This class provides standardized initialization for workload account stacks:
  * - Validates all required configuration is provided
  * - Initializes ResourceNaming with manifest values
  * - Applies standardized stack naming
  * - Automatically applies standard tags
  * - Sets up proper environment configuration
- * 
+ *
  * Key principles:
  * - All configuration comes from manifest (no hardcoded values)
  * - Fail-fast validation with clear error messages
@@ -73,6 +77,8 @@ export interface WorkloadBaseStackProps extends cdk.StackProps {
 export abstract class WorkloadBaseStack extends cdk.Stack {
   /** ResourceNaming instance for generating consistent resource names */
   protected readonly naming: ResourceNaming;
+  /** Workload configuration from manifest */
+  private readonly workloadConfig: WorkloadBaseStackConfig;
 
   /**
    * Creates a new WorkloadBaseStack
@@ -84,19 +90,27 @@ export abstract class WorkloadBaseStack extends cdk.Stack {
    */
   constructor(scope: Construct, _id: string, component: string, props: WorkloadBaseStackProps) {
     const { workloadConfig } = props;
-    
+
     // Validate required configuration with clear error messages
     if (!workloadConfig?.project?.trim()) {
-      throw new Error('WorkloadBaseStack: project is required in workloadConfig (must come from manifest)');
+      throw new Error(
+        'WorkloadBaseStack: project is required in workloadConfig (must come from manifest)',
+      );
     }
     if (!workloadConfig?.environment?.trim()) {
-      throw new Error('WorkloadBaseStack: environment is required in workloadConfig (must come from manifest)');
+      throw new Error(
+        'WorkloadBaseStack: environment is required in workloadConfig (must come from manifest)',
+      );
     }
     if (!workloadConfig?.region?.trim()) {
-      throw new Error('WorkloadBaseStack: region is required in workloadConfig (must come from manifest)');
+      throw new Error(
+        'WorkloadBaseStack: region is required in workloadConfig (must come from manifest)',
+      );
     }
     if (!workloadConfig?.accountId?.trim()) {
-      throw new Error('WorkloadBaseStack: accountId is required in workloadConfig (must come from manifest)');
+      throw new Error(
+        'WorkloadBaseStack: accountId is required in workloadConfig (must come from manifest)',
+      );
     }
 
     // Initialize ResourceNaming with validated configuration
@@ -120,15 +134,16 @@ export abstract class WorkloadBaseStack extends cdk.Stack {
       },
     });
 
-    // Store naming instance for use by subclasses
+    // Store naming instance and config for use by subclasses
     this.naming = naming;
+    this.workloadConfig = workloadConfig;
 
     // Apply standard tags to all resources in this stack
-    applyStandardTags(
-      this,
-      naming.getConfig(),
-      { component }
-    );
+    applyStandardTags(this, naming.getConfig(), {
+      component,
+      owner: workloadConfig.owner,
+      company: workloadConfig.company,
+    });
   }
 
   /**
@@ -136,12 +151,6 @@ export abstract class WorkloadBaseStack extends cdk.Stack {
    * Useful for subclasses that need access to the original configuration
    */
   protected getWorkloadConfig(): WorkloadBaseStackConfig {
-    const config = this.naming.getConfig();
-    return {
-      project: config.project,
-      environment: config.environment,
-      region: config.region!, // Safe to assert non-null since we validated in constructor
-      accountId: config.accountId!, // Safe to assert non-null since we validated in constructor
-    };
+    return this.workloadConfig;
   }
 }

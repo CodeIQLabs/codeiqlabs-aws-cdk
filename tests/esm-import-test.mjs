@@ -1,5 +1,5 @@
 // Test ESM imports for aws-cdk
-import { ManagementBaseStack, WorkloadBaseStack } from '../dist/esm/index.js';
+import { ManagementBaseStack, WorkloadBaseStack } from '../dist/index.js';
 
 console.log('Testing ESM imports for aws-cdk...');
 

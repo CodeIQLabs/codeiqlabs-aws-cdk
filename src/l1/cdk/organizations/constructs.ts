@@ -1,6 +1,6 @@
 /**
  * CDK Constructs for AWS Organizations resources
- * 
+ *
  * This module provides high-level CDK constructs that encapsulate the creation
  * of Organizations resources with standardized naming, tagging, and output patterns.
  */
@@ -20,23 +20,23 @@ import type {
 
 /**
  * High-level construct for AWS Organizations
- * 
+ *
  * This construct creates or adopts an organization, organizational units,
  * and accounts with consistent naming and parameter creation.
  */
 export class OrganizationConstruct extends Construct {
   /** The organization (if created) */
   public readonly organization?: orgs.CfnOrganization;
-  
+
   /** Map of OU keys to their results */
   public readonly organizationalUnits: Record<string, OrganizationalUnitResult> = {};
-  
+
   /** Flattened map of all account keys to account IDs */
   public readonly accountIds: Record<string, string> = {};
-  
+
   /** The root ID used */
   public readonly rootId: string;
-  
+
   /** The mode used */
   public readonly mode: string;
 
@@ -51,7 +51,7 @@ export class OrganizationConstruct extends Construct {
     // Create or adopt the Organization
     if (!isAdoptMode) {
       this.organization = new orgs.CfnOrganization(this, 'Organization', {
-        featureSet: props.featureSet ?? 'ALL'
+        featureSet: props.featureSet ?? 'ALL',
       });
     }
 
@@ -79,7 +79,7 @@ export class OrganizationConstruct extends Construct {
         props.naming,
         'root-id',
         props.rootId,
-        'AWS Organization Root ID'
+        'AWS Organization Root ID',
       );
     }
   }
@@ -104,13 +104,13 @@ export class OrganizationConstruct extends Construct {
 export class OrganizationalUnitConstruct extends Construct {
   /** The OU ID */
   public readonly ouId: string;
-  
+
   /** Map of account keys to their results */
   public readonly accounts: Record<string, AccountResult> = {};
-  
+
   /** Flattened map of account keys to account IDs */
   public readonly accountIds: Record<string, string> = {};
-  
+
   /** The created OU resource (if in create mode) */
   public readonly organizationalUnit?: orgs.CfnOrganizationalUnit;
 
@@ -119,21 +119,23 @@ export class OrganizationalUnitConstruct extends Construct {
 
     const { naming, mode, parentId, config } = props;
     const isAdoptMode = mode === 'adopt';
-    
+
     // Store config for later access
     (this as any)._config = config;
 
     if (isAdoptMode) {
       // Adopt mode: validate that ouId is provided
       if (!config.ouId) {
-        throw new Error(`organizationalUnits[${config.key}].ouId is required when organization.mode=adopt`);
+        throw new Error(
+          `organizationalUnits[${config.key}].ouId is required when organization.mode=adopt`,
+        );
       }
       this.ouId = config.ouId;
     } else {
       // Create mode: Create Organizational Unit
       this.organizationalUnit = new orgs.CfnOrganizationalUnit(this, 'OrganizationalUnit', {
         name: config.name,
-        parentId: parentId
+        parentId: parentId,
       });
       this.ouId = this.organizationalUnit.attrId;
     }
@@ -161,7 +163,7 @@ export class OrganizationalUnitConstruct extends Construct {
         naming,
         `${config.key}-ou-id`,
         this.ouId,
-        `Organizational Unit ID for ${config.name}`
+        `Organizational Unit ID for ${config.name}`,
       );
     }
   }
@@ -187,7 +189,7 @@ export class OrganizationalUnitConstruct extends Construct {
 export class AccountConstruct extends Construct {
   /** The account ID */
   public readonly accountId: string;
-  
+
   /** The created account resource (if in create mode) */
   public readonly account?: orgs.CfnAccount;
 
@@ -196,14 +198,16 @@ export class AccountConstruct extends Construct {
 
     const { naming, mode, parentId, config } = props;
     const isAdoptMode = mode === 'adopt';
-    
+
     // Store config for later access
     (this as any)._config = config;
 
     if (isAdoptMode) {
       // Adopt mode: validate that accountId is provided
       if (!config.accountId) {
-        throw new Error(`Account[${config.key}].accountId is required when organization.mode=adopt`);
+        throw new Error(
+          `Account[${config.key}].accountId is required when organization.mode=adopt`,
+        );
       }
       this.accountId = config.accountId;
     } else {
@@ -212,7 +216,10 @@ export class AccountConstruct extends Construct {
         accountName: config.name,
         email: config.email,
         parentIds: [parentId],
-        tags: Object.entries(config.tags ?? {}).map(([key, value]) => ({ key, value: String(value) })),
+        tags: Object.entries(config.tags ?? {}).map(([key, value]) => ({
+          key,
+          value: String(value),
+        })),
       });
       this.accountId = this.account.attrAccountId;
     }
@@ -228,13 +235,7 @@ export class AccountConstruct extends Construct {
 
     // Create SSM parameter
     if (props.createSsmParameters !== false) {
-      createAccountIdParameter(
-        this,
-        naming,
-        config.key,
-        this.accountId,
-        config.name
-      );
+      createAccountIdParameter(this, naming, config.key, this.accountId, config.name);
     }
   }
 

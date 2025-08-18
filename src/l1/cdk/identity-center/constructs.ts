@@ -1,6 +1,6 @@
 /**
  * CDK Constructs for AWS Identity Center (SSO) resources
- * 
+ *
  * This module provides high-level CDK constructs that encapsulate the creation
  * of Identity Center resources with standardized naming, tagging, and output patterns.
  */
@@ -8,7 +8,7 @@
 import * as cdk from 'aws-cdk-lib';
 import * as sso from 'aws-cdk-lib/aws-sso';
 import { Construct } from 'constructs';
-import { generateStandardTags, convertToCfnTags } from '../../../common/tagging/functions';
+import { generateStandardTags, convertToCfnTags } from '@codeiqlabs/aws-utils';
 import { createIdentityCenterParameter } from '../ssm/convenience';
 import type {
   IdentityCenterConstructProps,
@@ -20,17 +20,17 @@ import type {
 
 /**
  * High-level construct for AWS Identity Center resources
- * 
+ *
  * This construct creates permission sets, assignments, and associated
  * SSM parameters and CloudFormation outputs with consistent naming.
  */
 export class IdentityCenterConstruct extends Construct {
   /** Map of permission set names to their results */
   public readonly permissionSets: Record<string, PermissionSetResult> = {};
-  
+
   /** List of created assignments */
   public readonly assignments: sso.CfnAssignment[] = [];
-  
+
   /** The instance ARN used */
   public readonly instanceArn: string;
 
@@ -41,13 +41,17 @@ export class IdentityCenterConstruct extends Construct {
 
     // Create permission sets
     for (const psConfig of props.permissionSets) {
-      const permissionSetConstruct = new PermissionSetConstruct(this, `PermissionSet${psConfig.name}`, {
-        naming: props.naming,
-        instanceArn: props.instanceArn,
-        config: psConfig,
-        createSsmParameters: props.createSsmParameters,
-        createOutputs: props.createOutputs,
-      });
+      const permissionSetConstruct = new PermissionSetConstruct(
+        this,
+        `PermissionSet${psConfig.name}`,
+        {
+          naming: props.naming,
+          instanceArn: props.instanceArn,
+          config: psConfig,
+          createSsmParameters: props.createSsmParameters,
+          createOutputs: props.createOutputs,
+        },
+      );
 
       this.permissionSets[psConfig.name] = {
         permissionSet: permissionSetConstruct.permissionSet,
@@ -61,7 +65,9 @@ export class IdentityCenterConstruct extends Construct {
       for (const [index, assignmentConfig] of props.assignments.entries()) {
         const permissionSetResult = this.permissionSets[assignmentConfig.permissionSetName];
         if (!permissionSetResult) {
-          throw new Error(`Permission set ${assignmentConfig.permissionSetName} not found for assignment`);
+          throw new Error(
+            `Permission set ${assignmentConfig.permissionSetName} not found for assignment`,
+          );
         }
 
         const assignment = new AssignmentConstruct(this, `Assignment${index}`, {
@@ -91,7 +97,7 @@ export class IdentityCenterConstruct extends Construct {
         props.naming,
         'instance-arn',
         props.instanceArn,
-        'AWS Identity Center Instance ARN'
+        'AWS Identity Center Instance ARN',
       );
     }
   }
@@ -114,7 +120,7 @@ export class IdentityCenterConstruct extends Construct {
 export class PermissionSetConstruct extends Construct {
   /** The created permission set */
   public readonly permissionSet: sso.CfnPermissionSet;
-  
+
   /** The permission set ARN */
   public readonly arn: string;
 
@@ -132,13 +138,10 @@ export class PermissionSetConstruct extends Construct {
       managedPolicies: config.managedPolicies ?? [],
       inlinePolicy: config.inlinePolicy,
       tags: convertToCfnTags(
-        generateStandardTags(
-          naming.getConfig(),
-          {
-            component: 'Identity-Center',
-            customTags: config.tags
-          }
-        )
+        generateStandardTags(naming.getConfig(), {
+          component: 'Identity-Center',
+          customTags: config.tags,
+        }),
       ),
     });
 
@@ -160,7 +163,7 @@ export class PermissionSetConstruct extends Construct {
         naming,
         `permission-set-${config.name.toLowerCase().replace(/[^a-z0-9]/g, '-')}-arn`,
         this.arn,
-        `Permission Set ARN for ${config.name}`
+        `Permission Set ARN for ${config.name}`,
       );
     }
   }
@@ -188,7 +191,7 @@ export class AssignmentConstruct extends Construct {
     if (!config.principalId) {
       throw new Error(
         `Principal ID is required for ${config.principalType} assignment. ` +
-        `Please provide the principalId directly from AWS Identity Center.`
+          `Please provide the principalId directly from AWS Identity Center.`,
       );
     }
 

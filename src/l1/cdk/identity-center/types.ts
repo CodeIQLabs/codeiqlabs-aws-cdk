@@ -2,8 +2,11 @@
  * Type definitions for Identity Center CDK constructs
  */
 
-import type { ResourceNaming } from '@codeiqlabs/aws-utils/naming/convenience';
-import type { PermissionSetConfig, SSOAssignmentConfig } from '@codeiqlabs/aws-utils/config';
+import type {
+  ResourceNaming,
+  PermissionSetConfig,
+  SSOAssignmentConfig,
+} from '@codeiqlabs/aws-utils';
 
 /**
  * Props for the main IdentityCenterConstruct
