@@ -1,6 +1,8 @@
 name: CI
 
 on:
+  push:
+    branches: [main]
   pull_request:
     branches: [main]
 
@@ -35,7 +37,7 @@ jobs:
       - name: Build (so Prettier config exists)
         run: npm run build
 
-      - name: Check formatting
+      - name: Prettier check
         run: npm run format:check
 
   tests:

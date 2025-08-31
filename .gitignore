@@ -20,7 +20,6 @@ coverage/
 .env.test.local
 
 # NPM configuration (contains sensitive tokens)
-.npmrc
 .env.production.local
 
 # IDE files

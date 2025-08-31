@@ -39,7 +39,7 @@
     "changeset:status": "changeset status",
     "changeset:check": "find .changeset -name '*.md' ! -name 'README.md' ! -name 'RELEASE_TEMPLATE.md' | wc -l",
     "clean": "rimraf dist",
-    "build": "npm run clean && npm run build:bundle && npm run lint",
+    "build": "npm run clean && npm run build:bundle && npm run format && npm run lint",
     "build:bundle": "tsup src/index.ts --format esm,cjs --dts --sourcemap --clean",
     "test:load": "node tests/load-config.test.cjs",
     "test:esm": "node tests/esm-import-test.mjs",
@@ -62,11 +62,14 @@
     "url": "https://github.com/CodeIQLabs/codeiqlabs-aws-cdk"
   },
   "dependencies": {
-    "@codeiqlabs/aws-utils": "file:../codeiqlabs-aws-utils"
+    "@codeiqlabs/aws-utils": "^1.6.0"
+  },
+  "optionalDependencies": {
+    "@rollup/rollup-linux-x64-gnu": "^4.21.0"
   },
   "devDependencies": {
     "@changesets/cli": "^2.29.6",
-    "@codeiqlabs/eslint-prettier-config": "file:../codeiqlabs-eslint-prettier-config",
+    "@codeiqlabs/eslint-prettier-config": "^1.6.0",
     "@types/node": "^20.0.0",
     "@typescript-eslint/eslint-plugin": "^8.39.1",
     "@typescript-eslint/parser": "^8.39.1",
