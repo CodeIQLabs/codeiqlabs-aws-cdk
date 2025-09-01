@@ -22,7 +22,6 @@ jobs:
           node-version: 20
           cache: "npm"
           registry-url: "https://npm.pkg.github.com"
-          scope: "@codeiqlabs"
 
       - name: Install dependencies
         run: npm ci
