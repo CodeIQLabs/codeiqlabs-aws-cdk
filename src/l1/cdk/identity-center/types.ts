@@ -22,6 +22,10 @@ export interface IdentityCenterConstructProps {
   assignments?: SSOAssignmentConfig[];
   /** Account IDs map for assignment resolution (optional) */
   accountIds?: Record<string, string>;
+  /** Owner name or team for tagging */
+  owner: string;
+  /** Company/organization name for tagging */
+  company: string;
   /** Whether to create SSM parameters (default: true) */
   createSsmParameters?: boolean;
   /** Whether to create CloudFormation outputs (default: true) */
@@ -38,6 +42,10 @@ export interface PermissionSetConstructProps {
   instanceArn: string;
   /** Permission set configuration */
   config: PermissionSetConfig;
+  /** Owner name or team for tagging */
+  owner: string;
+  /** Company/organization name for tagging */
+  company: string;
   /** Whether to create SSM parameters (default: true) */
   createSsmParameters?: boolean;
   /** Whether to create CloudFormation outputs (default: true) */

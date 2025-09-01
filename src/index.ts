@@ -10,6 +10,9 @@
  * // Import everything
  * import { ... } from '@codeiqlabs/aws-cdk';
  *
+ * // Import application bootstrap utilities
+ * import { CdkApplication } from '@codeiqlabs/aws-cdk/application';
+ *
  * // Import only L1 abstractions
  * import { ... } from '@codeiqlabs/aws-cdk/l1';
  *
@@ -17,6 +20,12 @@
  * import { ... } from '@codeiqlabs/aws-cdk/l2';
  * ```
  */
+
+// Application bootstrap utilities
+export * from './application';
+
+// Enhanced base stage classes
+export * from './stages';
 
 // Re-export everything from L1 for convenience
 export * from './l1';
