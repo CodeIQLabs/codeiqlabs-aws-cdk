@@ -23,7 +23,8 @@ This release introduces the comprehensive CDK Application Bootstrap Consolidatio
 ## 🔧 **CI/CD and Tooling Improvements**
 
 ### **Workflow Alignment**
-- **GitHub Actions**: Updated workflows to match aws-utils patterns with push triggers and aligned job names
+- **GitHub Actions**: Updated workflows tol
+- match aws-utils patterns with push triggers and aligned job names
 - **Dependency Management**: Updated to use proper versions instead of file references
   - @codeiqlabs/aws-utils: ^1.7.0 (was file:../codeiqlabs-aws-utils)
   - @codeiqlabs/eslint-prettier-config: ^1.6.0 (was file:../codeiqlabs-eslint-prettier-config)
