@@ -1,6 +1,6 @@
 {
   "name": "@codeiqlabs/aws-cdk",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "CodeIQLabs AWS CDK wrapper utilities for Level 1 and Level 2 abstractions",
   "type": "module",
   "main": "./dist/index.cjs",
