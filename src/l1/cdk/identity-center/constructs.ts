@@ -48,6 +48,8 @@ export class IdentityCenterConstruct extends Construct {
           naming: props.naming,
           instanceArn: props.instanceArn,
           config: psConfig,
+          owner: props.owner,
+          company: props.company,
           createSsmParameters: props.createSsmParameters,
           createOutputs: props.createOutputs,
         },
@@ -140,6 +142,8 @@ export class PermissionSetConstruct extends Construct {
       tags: convertToCfnTags(
         generateStandardTags(naming.getConfig(), {
           component: 'Identity-Center',
+          owner: props.owner,
+          company: props.company,
           customTags: config.tags,
         }),
       ),

@@ -62,7 +62,7 @@
     "url": "https://github.com/CodeIQLabs/codeiqlabs-aws-cdk"
   },
   "dependencies": {
-    "@codeiqlabs/aws-utils": "^1.6.0"
+    "@codeiqlabs/aws-utils": "^1.7.0"
   },
   "optionalDependencies": {
     "@rollup/rollup-linux-x64-gnu": "^4.21.0"
@@ -74,7 +74,7 @@
     "@typescript-eslint/eslint-plugin": "^8.39.1",
     "@typescript-eslint/parser": "^8.39.1",
     "aws-cdk": "2.123.0",
-    "aws-cdk-lib": "2.208.0",
+    "aws-cdk-lib": "^2.150.0",
     "constructs": "^10.0.0",
     "eslint": "^9.33.0",
     "husky": "^9.0.0",
