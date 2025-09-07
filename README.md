@@ -477,36 +477,6 @@ The v1.5.0 release includes:
 - **Zero dependency conflicts** with the new bundler approach
 - **Enhanced TypeScript rules** and better error handling
 
-## Contributing
-
-### Adding New Library Stacks
-
-1. Create a new stack file under `src/stacks/management/` or `src/stacks/workload/`
-2. Extend the appropriate base stack class (`ManagementBaseStack` or `WorkloadBaseStack`)
-3. Follow the BaseStack + L2 Construct pattern (wrap a single high-level construct)
-4. Add comprehensive TypeScript types and props interfaces
-5. Update the appropriate `index.ts` to export your stack
-6. Add usage examples to this README
-
-### Adding New Constructs
-
-1. Create a new directory under `src/constructs/`
-2. Implement your construct following existing patterns
-3. Add comprehensive TypeScript types
-4. Include SSM parameter and CloudFormation output creation
-5. Update the main `index.ts` to export your construct
-6. Add usage examples to this README
-
-### Code Quality
-
-This project uses:
-
-- **ESLint** with `@codeiqlabs/eslint-prettier-config` for code quality
-- **Prettier** for consistent code formatting
-- **TypeScript** for type safety
-- **Husky** for pre-commit hooks
-- **lint-staged** for staged file linting
-
 ## Release Process
 
 This package uses automated release management with changesets:
