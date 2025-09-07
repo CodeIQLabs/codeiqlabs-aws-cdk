@@ -52,9 +52,11 @@
  */
 
 // Base stage classes
-export { BaseStage } from './base-stage';
 export { ManagementBaseStage } from './management-base-stage';
 export { WorkloadBaseStage } from './workload-base-stage';
+
+// Declarative stage classes
+export { DeclarativeManagementBaseStage } from './declarative-management-base-stage';
 
 // Type definitions
 export type {
@@ -70,3 +72,10 @@ export type {
   StackCreationOptions,
   StackCreationResult,
 } from './stage-types';
+
+// Declarative types
+export type {
+  ManagementStackRegistration,
+  WorkloadStackRegistration,
+  DeclarativeStackResult,
+} from './declarative-types';

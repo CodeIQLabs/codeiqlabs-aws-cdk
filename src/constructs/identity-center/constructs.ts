@@ -9,7 +9,7 @@ import * as cdk from 'aws-cdk-lib';
 import * as sso from 'aws-cdk-lib/aws-sso';
 import { Construct } from 'constructs';
 import { generateStandardTags, convertToCfnTags } from '@codeiqlabs/aws-utils';
-import { createIdentityCenterParameter } from '../ssm/convenience';
+import { createIdentityCenterParameter } from '../../common/ssm/convenience';
 import type {
   IdentityCenterConstructProps,
   PermissionSetConstructProps,

@@ -1,18 +1,23 @@
 # @codeiqlabs/aws-cdk
 
-**Reusable AWS CDK constructs for enterprise projects** - A comprehensive TypeScript library
-providing Level 1 (L1) and Level 2 (L2) abstractions that eliminate repetitive code, ensure
-consistent patterns, and accelerate infrastructure development across any organization's AWS
-projects.
+**Reusable AWS CDK library with pre-built stacks and declarative patterns** - A comprehensive
+TypeScript library providing reusable stack implementations, constructs, and declarative stage
+patterns that eliminate repetitive code and accelerate infrastructure development across any
+organization's AWS projects.
 
-## 🚀 Key Features
+## Key Features
 
-- **🏗️ L1 Constructs**: Thin wrappers around AWS CDK constructs with standardized patterns
-- **🎯 L2 Constructs**: Higher-level patterns combining multiple L1 constructs (future)
-- **🏷️ Automatic Tagging**: Consistent tagging across all AWS resources
-- **📋 Type Safety**: Full TypeScript support with comprehensive type definitions
-- **🔧 Base Stack Classes**: Pre-configured stack classes for management and workload accounts
-- **📦 Dual Module Support**: Full ESM and CommonJS compatibility with modern tsup bundler
+- **Library-Provided Stacks**: Pre-built, reusable stack implementations for common infrastructure
+  patterns
+- **Declarative Stage Pattern**: Automatic stack creation with dependency resolution and conditional
+  logic
+- **Reusable Constructs**: Standardized constructs for AWS Organizations, Identity Center, and
+  deployment permissions
+- **Base Stack Classes**: Foundation classes for management and workload accounts with automatic
+  tagging and naming
+- **Type Safety**: Full TypeScript support with comprehensive type definitions and validation
+- **Simplified Import Paths**: Clean, logical module organization for better developer experience
+- **Dual Module Support**: Full ESM and CommonJS compatibility with modern tsup bundler
 
 ## 📦 Installation
 
@@ -43,42 +48,94 @@ This package uses **tsup** for modern dual ESM/CJS publishing:
 - **Type definitions** automatically generated for both ESM and CJS
 - **Modern bundler approach** following TypeScript library best practices
 
-## 📚 Usage Examples
+## Usage Examples
 
-### Base Stack Classes
+### Library-Provided Management Stacks
 
-Pre-configured stack classes with automatic tagging and naming:
+Use pre-built, reusable stack implementations for common infrastructure patterns:
 
 ```typescript
-import { ManagementBaseStack, WorkloadBaseStack } from '@codeiqlabs/aws-cdk';
+import {
+  ManagementOrganizationsStack,
+  ManagementIdentityCenterStack,
+} from '@codeiqlabs/aws-cdk/stacks';
 import { App } from 'aws-cdk-lib';
 
 const app = new App();
 
-// Management account stack
-class MyManagementStack extends ManagementBaseStack {
-  constructor(scope: Construct, id: string, props: ManagementBaseStackProps) {
-    super(scope, id, props);
-
-    // Your management account resources here
-    // Automatic tagging and naming already applied
-  }
-}
-
-// Workload account stack
-class MyWorkloadStack extends WorkloadBaseStack {
-  constructor(scope: Construct, id: string, props: WorkloadBaseStackProps) {
-    super(scope, id, props);
-
-    // Your workload resources here
-    // Automatic tagging and naming already applied
-  }
-}
-
-new MyManagementStack(app, 'MyManagementStack', {
-  naming: new ResourceNaming({ project: 'MyOrganization', environment: 'mgmt' }),
-  description: 'Management account infrastructure',
+// Pre-built Organizations stack
+const orgStack = new ManagementOrganizationsStack(app, 'Organizations', {
+  managementConfig: config,
+  config: manifest,
+  orgRootId: manifest.organization.rootId,
 });
+
+// Pre-built Identity Center stack with automatic dependency resolution
+const identityStack = new ManagementIdentityCenterStack(app, 'IdentityCenter', {
+  managementConfig: config,
+  config: manifest,
+  accountIds: orgStack.accountIds, // Automatic dependency injection
+});
+```
+
+### Declarative Stage Pattern
+
+Create stages that automatically manage stack creation and dependencies:
+
+```typescript
+import {
+  DeclarativeManagementBaseStage,
+  ManagementOrganizationsStack,
+  ManagementIdentityCenterStack,
+  type ManagementStackRegistration,
+} from '@codeiqlabs/aws-cdk';
+
+export class ManagementStage extends DeclarativeManagementBaseStage {
+  constructor(scope: Construct, id: string, props: EnhancedManagementStageProps) {
+    super(scope, id, props);
+    this.createRegisteredStacks(); // One line creates all stacks!
+  }
+
+  protected registerStacks(): ManagementStackRegistration<any>[] {
+    return [
+      {
+        stackClass: ManagementOrganizationsStack,
+        component: 'Organizations',
+        enabled: (manifest) => manifest.organization?.enabled === true,
+        additionalProps: (manifest) => ({
+          config: manifest,
+          orgRootId: manifest.organization.rootId,
+        }),
+      },
+      {
+        stackClass: ManagementIdentityCenterStack,
+        component: 'IdentityCenter',
+        enabled: (manifest) => manifest.identityCenter?.enabled === true,
+        dependencies: ['Organizations'], // Automatic dependency resolution
+        additionalProps: (manifest, deps) => ({
+          config: manifest,
+          accountIds: (deps.Organizations as ManagementOrganizationsStack).accountIds,
+        }),
+      },
+    ];
+  }
+}
+```
+
+### Base Stack Classes
+
+Foundation classes for custom stack implementations:
+
+```typescript
+import { ManagementBaseStack, WorkloadBaseStack } from '@codeiqlabs/aws-cdk/stacks';
+
+// Custom management account stack
+class CustomManagementStack extends ManagementBaseStack {
+  constructor(scope: Construct, id: string, props: ManagementBaseStackProps) {
+    super(scope, id, 'CustomComponent', props);
+    // Automatic tagging and naming already applied
+  }
+}
 
 new MyWorkloadStack(app, 'MyWorkloadStack', {
   naming: new ResourceNaming({ project: 'MyProject', environment: 'nprd' }),

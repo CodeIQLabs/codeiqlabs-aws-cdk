@@ -1,28 +1,78 @@
 # @codeiqlabs/aws-cdk
 
+## 1.3.0 - 2025-01-07
+
+### Minor Changes
+
+#### Library-Provided Stack Pattern Implementation
+
+This major update introduces the Library-Provided Stack Pattern, transforming the aws-cdk package
+into a comprehensive library that provides reusable, pre-built stack implementations for common
+infrastructure patterns.
+
+**New Library-Provided Stacks**
+
+- **ManagementOrganizationsStack**: Reusable AWS Organizations setup for any management account
+- **ManagementIdentityCenterStack**: Reusable AWS Identity Center (SSO) configuration
+- **BaseStack + L2 Construct Pattern**: Each stack wraps a single high-level construct with minimal
+  business logic
+
+**Declarative Stack Registration System**
+
+- **DeclarativeManagementBaseStage**: Automatic stack creation with dependency resolution
+- **ManagementStackRegistration**: Type-safe stack registration interface
+- **Enhanced Features**: Conditional creation, dependency injection, comprehensive error handling
+
+**Developer Experience Improvements**
+
+- **Simplified Applications**: Consuming apps become pure orchestration layers (60-70% code
+  reduction)
+- **Improved Import Paths**: `@codeiqlabs/aws-cdk/stacks` vs `@codeiqlabs/aws-cdk/l1/cdk/stacks`
+- **Type Safety**: Full TypeScript support with proper error messages
+
+**Architectural Restructuring**
+
+- **Directory Organization**: Eliminated L1/L2 distinction, introduced logical grouping
+  (`src/stacks/`, `src/constructs/`, `src/stages/`, `src/common/`)
+- **Code Consolidation**: Single source of truth for stack implementations
+- **Enhanced Maintainability**: Reduced duplication and clearer boundaries
+
+**Breaking Changes**
+
+- Import paths updated from `l1/cdk/*` to simplified structure
+- Removed BaseStage class, consolidated into specific stage classes
+- Complete reorganization of internal directory structure
+
 ## 1.2.1 - 2025-09-01
 
 ### Patch Changes
 
 #### Dependency Alignment and Peer Dependency Fixes
 
-This update resolves dependency conflicts and aligns AWS CDK versions across the CodeIQLabs ecosystem for clean npm installs without legacy peer dependency flags.
+This update resolves dependency conflicts and aligns AWS CDK versions across the CodeIQLabs
+ecosystem for clean npm installs without legacy peer dependency flags.
 
-**Note**: This changelog reflects the next expected version (1.2.1) based on changeset specification. The actual package.json version remains at 1.2.0 following library repository policy - versions are only incremented for actual code changes, not dependency updates.
+**Note**: This changelog reflects the next expected version (1.2.1) based on changeset
+specification. The actual package.json version remains at 1.2.0 following library repository
+policy - versions are only incremented for actual code changes, not dependency updates.
 
 #### 🔧 **Dependency Fixes**
 
 ##### **AWS CDK Version Alignment**
+
 - **aws-cdk-lib**: Updated from `^2.150.0` to `^2.213.0` to match aws-utils peer dependency
 - **aws-cdk**: Updated from `2.123.0` to `^2.213.0` for consistency
 - **Peer Dependencies**: Updated `aws-cdk-lib` peer dependency from `2.208.0` to `^2.213.0`
 
 ##### **CodeIQLabs Package Alignment**
-- **@codeiqlabs/eslint-prettier-config**: Updated from `^1.8.0` to `^1.7.0` to match published version
+
+- **@codeiqlabs/eslint-prettier-config**: Updated from `^1.8.0` to `^1.7.0` to match published
+  version
 - **TypeScript ESLint**: Aligned to `^8.39.1` across ecosystem
 - **ESLint**: Updated to `^9.33.0` for consistency
 
 #### 🎯 **Benefits**
+
 - ✅ **Clean npm install**: No more `--legacy-peer-deps` flag required
 - ✅ **Version consistency**: All AWS CDK packages use compatible versions
 - ✅ **Ecosystem alignment**: Consistent dependency versions across CodeIQLabs packages
