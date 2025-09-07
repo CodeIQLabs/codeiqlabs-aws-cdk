@@ -55,10 +55,7 @@ export interface EnhancedWorkloadStageProps extends cdk.StageProps {
 export type ManagementStackConstructor<T extends cdk.Stack> = new (
   scope: Construct,
   id: string,
-  props: {
-    managementConfig: ManagementBaseStackConfig;
-    [key: string]: any;
-  },
+  props: any,
 ) => T;
 
 /**
@@ -67,10 +64,7 @@ export type ManagementStackConstructor<T extends cdk.Stack> = new (
 export type WorkloadStackConstructor<T extends cdk.Stack> = new (
   scope: Construct,
   id: string,
-  props: {
-    workloadConfig: WorkloadBaseStackConfig;
-    [key: string]: any;
-  },
+  props: any,
 ) => T;
 
 /**

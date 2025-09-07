@@ -8,9 +8,8 @@
 
 import * as cdk from 'aws-cdk-lib';
 import type { Construct } from 'constructs';
-import { ManifestConfigAdapter } from '@codeiqlabs/aws-utils';
+import { ManifestConfigAdapter, ResourceNaming } from '@codeiqlabs/aws-utils';
 import type { WorkloadAppConfig, WorkloadBaseStackConfig } from '@codeiqlabs/aws-utils';
-import { BaseStage } from './base-stage';
 import type {
   EnhancedWorkloadStageProps,
   StackCreationOptions,
@@ -48,7 +47,7 @@ import type {
  * }
  * ```
  */
-export abstract class WorkloadBaseStage extends BaseStage {
+export abstract class WorkloadBaseStage extends cdk.Stage {
   /** The original workload manifest configuration */
   protected readonly manifest: WorkloadAppConfig;
 
@@ -60,6 +59,9 @@ export abstract class WorkloadBaseStage extends BaseStage {
 
   /** The transformed workload configuration for stacks */
   protected readonly workloadConfig: WorkloadBaseStackConfig;
+
+  /** Resource naming utility for consistent naming patterns */
+  protected readonly naming: ResourceNaming;
 
   constructor(scope: Construct, id: string, props: EnhancedWorkloadStageProps) {
     // Validate environment exists
@@ -79,12 +81,18 @@ export abstract class WorkloadBaseStage extends BaseStage {
       ? { ...workloadConfig, ...props.configOverrides }
       : workloadConfig;
 
-    super(scope, id, props, finalConfig);
+    super(scope, id, props);
 
     this.manifest = props.cfg;
     this.envName = props.envName;
     this.environment = environment;
     this.workloadConfig = finalConfig;
+    this.naming = new ResourceNaming({
+      project: finalConfig.project,
+      environment: finalConfig.environment,
+      region: finalConfig.region,
+      accountId: finalConfig.accountId,
+    });
 
     // Validate workload-specific requirements
     this.validateWorkloadConfiguration();
@@ -110,10 +118,59 @@ export abstract class WorkloadBaseStage extends BaseStage {
   }
 
   /**
+   * Create a workload stack with automatic configuration and naming
+   */
+  private createWorkloadStack<T extends cdk.Stack>(
+    stackClass: WorkloadStackConstructor<T>,
+    component: string,
+    options: StackCreationOptions = {},
+  ): StackCreationResult<T> {
+    const stackName = options.stackName || this.naming.stackName(component);
+    const env = options.env || {
+      account: this.workloadConfig.accountId,
+      region: this.workloadConfig.region,
+    };
+
+    const stack = new stackClass(this, stackName, {
+      workloadConfig: this.workloadConfig,
+      env,
+      ...options.additionalProps,
+    });
+
+    // Apply dependencies if specified
+    if (options.dependencies) {
+      for (const dependency of options.dependencies) {
+        stack.addDependency(dependency);
+      }
+    }
+
+    return {
+      stack,
+      stackName,
+      config: this.workloadConfig,
+    };
+  }
+
+  /**
    * Validate workload-specific configuration requirements
    */
   protected validateWorkloadConfiguration(): void {
-    super.validateConfiguration();
+    // Basic configuration validation
+    if (!this.workloadConfig.project) {
+      throw new Error('Stage configuration missing required project name');
+    }
+
+    if (!this.workloadConfig.environment) {
+      throw new Error('Stage configuration missing required environment');
+    }
+
+    if (!this.workloadConfig.region) {
+      throw new Error('Stage configuration missing required region');
+    }
+
+    if (!this.workloadConfig.accountId) {
+      throw new Error('Stage configuration missing required account ID');
+    }
 
     // Validate workload account environment
     if (this.workloadConfig.environment === 'mgmt') {

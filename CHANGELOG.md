@@ -1,5 +1,48 @@
 # @codeiqlabs/aws-cdk
 
+## 1.3.0 - 2025-01-07
+
+### Minor Changes
+
+#### Library-Provided Stack Pattern Implementation
+
+This major update introduces the Library-Provided Stack Pattern, transforming the aws-cdk package
+into a comprehensive library that provides reusable, pre-built stack implementations for common
+infrastructure patterns.
+
+**New Library-Provided Stacks**
+
+- **ManagementOrganizationsStack**: Reusable AWS Organizations setup for any management account
+- **ManagementIdentityCenterStack**: Reusable AWS Identity Center (SSO) configuration
+- **BaseStack + L2 Construct Pattern**: Each stack wraps a single high-level construct with minimal
+  business logic
+
+**Declarative Stack Registration System**
+
+- **DeclarativeManagementBaseStage**: Automatic stack creation with dependency resolution
+- **ManagementStackRegistration**: Type-safe stack registration interface
+- **Enhanced Features**: Conditional creation, dependency injection, comprehensive error handling
+
+**Developer Experience Improvements**
+
+- **Simplified Applications**: Consuming apps become pure orchestration layers (60-70% code
+  reduction)
+- **Improved Import Paths**: `@codeiqlabs/aws-cdk/stacks` vs `@codeiqlabs/aws-cdk/l1/cdk/stacks`
+- **Type Safety**: Full TypeScript support with proper error messages
+
+**Architectural Restructuring**
+
+- **Directory Organization**: Eliminated L1/L2 distinction, introduced logical grouping
+  (`src/stacks/`, `src/constructs/`, `src/stages/`, `src/common/`)
+- **Code Consolidation**: Single source of truth for stack implementations
+- **Enhanced Maintainability**: Reduced duplication and clearer boundaries
+
+**Breaking Changes**
+
+- Import paths updated from `l1/cdk/*` to simplified structure
+- Removed BaseStage class, consolidated into specific stage classes
+- Complete reorganization of internal directory structure
+
 ## 1.2.1
 
 ### Patch Changes
@@ -9,7 +52,7 @@
   This update resolves dependency conflicts and aligns AWS CDK versions across the CodeIQLabs
   ecosystem for clean npm installs without legacy peer dependency flags.
 
-  ## 🔧 **Dependency Fixes**
+  ## **Dependency Fixes**
 
   ### **AWS CDK Version Alignment**
   - **aws-cdk-lib**: Updated from `^2.150.0` to `^2.213.0` to match aws-utils peer dependency
@@ -22,14 +65,14 @@
   - **TypeScript ESLint**: Aligned to `^8.39.1` across ecosystem
   - **ESLint**: Updated to `^9.33.0` for consistency
 
-  ## 🎯 **Benefits**
-  - ✅ **Clean npm install**: No more `--legacy-peer-deps` flag required
-  - ✅ **Version consistency**: All AWS CDK packages use compatible versions
-  - ✅ **Ecosystem alignment**: Consistent dependency versions across CodeIQLabs packages
-  - ✅ **Workspace compatibility**: Maintains hybrid workspace + semantic versioning strategy
-  - ✅ **Zero vulnerabilities**: Clean dependency tree with no security issues
+  ## **Benefits**
+  - **Clean npm install**: No more `--legacy-peer-deps` flag required
+  - **Version consistency**: All AWS CDK packages use compatible versions
+  - **Ecosystem alignment**: Consistent dependency versions across CodeIQLabs packages
+  - **Workspace compatibility**: Maintains hybrid workspace + semantic versioning strategy
+  - **Zero vulnerabilities**: Clean dependency tree with no security issues
 
-  ## 🔄 **Migration Notes**
+  ## **Migration Notes**
 
   ### **For Consuming Packages**
   - Continue using `@codeiqlabs/aws-cdk: ^1.2.0` in your package.json
@@ -37,9 +80,9 @@
   - Run `npm install` (no legacy flags needed)
 
   ### **Compatibility**
-  - ✅ **Backward compatible**: No breaking changes to public APIs
-  - ✅ **Workspace linking**: Continues to work seamlessly in development
-  - ✅ **CI/CD builds**: Clean dependency resolution in all environments
+  - **Backward compatible**: No breaking changes to public APIs
+  - **Workspace linking**: Continues to work seamlessly in development
+  - **CI/CD builds**: Clean dependency resolution in all environments
 
   **Note**: This changeset documents dependency alignment changes for transparency. Version remains
   at 1.2.0 following library repository policy - versions are only incremented for actual code
@@ -58,7 +101,7 @@ ecosystem for clean npm installs without legacy peer dependency flags.
 specification. The actual package.json version remains at 1.2.0 following library repository
 policy - versions are only incremented for actual code changes, not dependency updates.
 
-#### 🔧 **Dependency Fixes**
+#### **Dependency Fixes**
 
 ##### **AWS CDK Version Alignment**
 
@@ -73,13 +116,13 @@ policy - versions are only incremented for actual code changes, not dependency u
 - **TypeScript ESLint**: Aligned to `^8.39.1` across ecosystem
 - **ESLint**: Updated to `^9.33.0` for consistency
 
-#### 🎯 **Benefits**
+#### **Benefits**
 
-- ✅ **Clean npm install**: No more `--legacy-peer-deps` flag required
-- ✅ **Version consistency**: All AWS CDK packages use compatible versions
-- ✅ **Ecosystem alignment**: Consistent dependency versions across CodeIQLabs packages
-- ✅ **Workspace compatibility**: Maintains hybrid workspace + semantic versioning strategy
-- ✅ **Zero vulnerabilities**: Clean dependency tree with no security issues
+- **Clean npm install**: No more `--legacy-peer-deps` flag required
+- **Version consistency**: All AWS CDK packages use compatible versions
+- **Ecosystem alignment**: Consistent dependency versions across CodeIQLabs packages
+- **Workspace compatibility**: Maintains hybrid workspace + semantic versioning strategy
+- **Zero vulnerabilities**: Clean dependency tree with no security issues
 
 ## 1.2.0
 
@@ -91,7 +134,7 @@ policy - versions are only incremented for actual code changes, not dependency u
   aligns CI/CD workflows with aws-utils patterns, delivering significant improvements to developer
   experience and infrastructure automation.
 
-  ## 🚀 **Major Features**
+  ## **Major Features**
 
   ### **CDK Application Bootstrap Consolidation**
   - **CdkApplication Class**: Automatic manifest loading, validation, and configuration with
@@ -111,7 +154,7 @@ policy - versions are only incremented for actual code changes, not dependency u
     repositories
   - **Built-in Validation**: Context-aware error messages with actionable guidance
 
-  ## 🔧 **CI/CD and Tooling Improvements**
+  ## **CI/CD and Tooling Improvements**
 
   ### **Workflow Alignment**
   - **GitHub Actions**: Updated workflows tol
@@ -128,14 +171,14 @@ policy - versions are only incremented for actual code changes, not dependency u
   - **Consistent Patterns**: Ensured uniform CI/CD patterns across all CodeIQLabs repositories
   - **Enhanced Documentation**: Comprehensive usage examples and migration guidance
 
-  ## 🎯 **Benefits Summary**
-  - ✅ **68-84% reduction** in CDK application bootstrap code
-  - ✅ **Automatic manifest loading** with intelligent type detection and validation
-  - ✅ **Enhanced base stage classes** with built-in configuration transformation
-  - ✅ **Standardized CI/CD workflows** aligned with ecosystem patterns
-  - ✅ **Improved type safety** with comprehensive TypeScript support
-  - ✅ **Better developer experience** with automatic error handling and validation
-  - ✅ **Consistent patterns** across all infrastructure repositories
+  ## **Benefits Summary**
+  - **68-84% reduction** in CDK application bootstrap code
+  - **Automatic manifest loading** with intelligent type detection and validation
+  - **Enhanced base stage classes** with built-in configuration transformation
+  - **Standardized CI/CD workflows** aligned with ecosystem patterns
+  - **Improved type safety** with comprehensive TypeScript support
+  - **Better developer experience** with automatic error handling and validation
+  - **Consistent patterns** across all infrastructure repositories
 
   This release establishes @codeiqlabs/aws-cdk as the foundation for simplified, standardized CDK
   application development in the CodeIQLabs ecosystem.
@@ -188,13 +231,13 @@ and infrastructure automation.
 
 #### Benefits Summary
 
-- ✅ **68-84% reduction** in CDK application bootstrap code
-- ✅ **Automatic manifest loading** with intelligent type detection and validation
-- ✅ **Enhanced base stage classes** with built-in configuration transformation
-- ✅ **Standardized CI/CD workflows** aligned with ecosystem patterns
-- ✅ **Improved type safety** with comprehensive TypeScript support
-- ✅ **Better developer experience** with automatic error handling and validation
-- ✅ **Consistent patterns** across all infrastructure repositories
+- **68-84% reduction** in CDK application bootstrap code
+- **Automatic manifest loading** with intelligent type detection and validation
+- **Enhanced base stage classes** with built-in configuration transformation
+- **Standardized CI/CD workflows** aligned with ecosystem patterns
+- **Improved type safety** with comprehensive TypeScript support
+- **Better developer experience** with automatic error handling and validation
+- **Consistent patterns** across all infrastructure repositories
 
 ## 1.1.0
 

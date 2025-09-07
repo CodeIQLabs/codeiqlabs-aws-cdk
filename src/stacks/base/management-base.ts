@@ -28,7 +28,7 @@
 import * as cdk from 'aws-cdk-lib';
 import type { Construct } from 'constructs';
 import { ResourceNaming } from '@codeiqlabs/aws-utils';
-import { applyStandardTagsWithNaming } from '../index';
+import { applyStandardTagsWithNaming } from '../../common/tagging/cdk';
 
 /**
  * Configuration for ManagementBaseStack

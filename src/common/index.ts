@@ -1,12 +1,18 @@
 /**
- * Common utilities shared between L1 and L2 abstractions
+ * Common utilities shared across all CodeIQLabs CDK abstractions
  *
- * This module contains utilities that are used across both abstraction levels,
- * such as tagging functions, validation utilities, and shared types.
+ * This module contains utilities that are used across stacks, constructs, and stages,
+ * such as tagging functions, SSM parameters, CloudFormation outputs, and validation utilities.
  */
 
-// Re-export tagging utilities
+// Tagging utilities
 export * from './tagging';
 
-// Re-export aspects utilities
+// Aspects utilities
 export * from './aspects';
+
+// SSM parameter utilities
+export * from './ssm';
+
+// CloudFormation output utilities
+export * from './outputs';

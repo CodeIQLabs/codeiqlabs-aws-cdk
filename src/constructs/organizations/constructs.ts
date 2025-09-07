@@ -8,7 +8,10 @@
 import * as cdk from 'aws-cdk-lib';
 import * as orgs from 'aws-cdk-lib/aws-organizations';
 import { Construct } from 'constructs';
-import { createAccountIdParameter, createOrganizationParameter } from '../ssm/convenience';
+import {
+  createAccountIdParameter,
+  createOrganizationParameter,
+} from '../../common/ssm/convenience';
 import type {
   OrganizationConstructProps,
   OrganizationalUnitConstructProps,

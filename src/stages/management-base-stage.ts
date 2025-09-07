@@ -8,9 +8,8 @@
 
 import * as cdk from 'aws-cdk-lib';
 import type { Construct } from 'constructs';
-import { ManifestConfigAdapter } from '@codeiqlabs/aws-utils';
+import { ManifestConfigAdapter, ResourceNaming } from '@codeiqlabs/aws-utils';
 import type { ManagementAppConfig, ManagementBaseStackConfig } from '@codeiqlabs/aws-utils';
-import { BaseStage } from './base-stage';
 import type {
   EnhancedManagementStageProps,
   StackCreationOptions,
@@ -48,14 +47,19 @@ import type {
  * }
  * ```
  */
-export abstract class ManagementBaseStage extends BaseStage {
+export abstract class ManagementBaseStage extends cdk.Stage {
   /** The original management manifest configuration */
   protected readonly manifest: ManagementAppConfig;
 
   /** The transformed management configuration for stacks */
   protected readonly managementConfig: ManagementBaseStackConfig;
 
+  /** Resource naming utility for consistent naming patterns */
+  protected readonly naming: ResourceNaming;
+
   constructor(scope: Construct, id: string, props: EnhancedManagementStageProps) {
+    super(scope, id, props);
+
     // Transform manifest to base stack configuration
     const managementConfig = ManifestConfigAdapter.toManagementConfig(props.cfg);
 
@@ -64,10 +68,14 @@ export abstract class ManagementBaseStage extends BaseStage {
       ? { ...managementConfig, ...props.configOverrides }
       : managementConfig;
 
-    super(scope, id, props, finalConfig);
-
     this.manifest = props.cfg;
     this.managementConfig = finalConfig;
+    this.naming = new ResourceNaming({
+      project: finalConfig.project,
+      environment: finalConfig.environment,
+      region: finalConfig.region,
+      accountId: finalConfig.accountId,
+    });
 
     // Validate management-specific requirements
     this.validateManagementConfiguration();
@@ -93,10 +101,59 @@ export abstract class ManagementBaseStage extends BaseStage {
   }
 
   /**
+   * Create a management stack with automatic configuration and naming
+   */
+  private createManagementStack<T extends cdk.Stack>(
+    stackClass: ManagementStackConstructor<T>,
+    component: string,
+    options: StackCreationOptions = {},
+  ): StackCreationResult<T> {
+    const stackName = options.stackName || this.naming.stackName(component);
+    const env = options.env || {
+      account: this.managementConfig.accountId,
+      region: this.managementConfig.region,
+    };
+
+    const stack = new stackClass(this, stackName, {
+      managementConfig: this.managementConfig,
+      env,
+      ...options.additionalProps,
+    });
+
+    // Apply dependencies if specified
+    if (options.dependencies) {
+      for (const dependency of options.dependencies) {
+        stack.addDependency(dependency);
+      }
+    }
+
+    return {
+      stack,
+      stackName,
+      config: this.managementConfig,
+    };
+  }
+
+  /**
    * Validate management-specific configuration requirements
    */
   protected validateManagementConfiguration(): void {
-    super.validateConfiguration();
+    // Basic configuration validation
+    if (!this.managementConfig.project) {
+      throw new Error('Stage configuration missing required project name');
+    }
+
+    if (!this.managementConfig.environment) {
+      throw new Error('Stage configuration missing required environment');
+    }
+
+    if (!this.managementConfig.region) {
+      throw new Error('Stage configuration missing required region');
+    }
+
+    if (!this.managementConfig.accountId) {
+      throw new Error('Stage configuration missing required account ID');
+    }
 
     // Validate management account environment
     if (this.managementConfig.environment !== 'mgmt') {

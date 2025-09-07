@@ -1,7 +1,7 @@
 /**
  * @codeiqlabs/aws-cdk - AWS CDK wrapper utilities for CodeIQLabs projects
  *
- * This package provides Level 1 and Level 2 abstractions for AWS CDK constructs
+ * This package provides reusable stack classes, constructs, and stage utilities
  * that eliminate repetitive code and ensure consistent patterns across all
  * CodeIQLabs infrastructure projects.
  *
@@ -13,25 +13,28 @@
  * // Import application bootstrap utilities
  * import { CdkApplication } from '@codeiqlabs/aws-cdk/application';
  *
- * // Import only L1 abstractions
- * import { ... } from '@codeiqlabs/aws-cdk/l1';
+ * // Import stack classes
+ * import { ... } from '@codeiqlabs/aws-cdk/stacks';
  *
- * // Import only L2 abstractions (when available)
- * import { ... } from '@codeiqlabs/aws-cdk/l2';
+ * // Import construct classes
+ * import { ... } from '@codeiqlabs/aws-cdk/constructs';
+ *
+ * // Import stage classes
+ * import { ... } from '@codeiqlabs/aws-cdk/stages';
  * ```
  */
 
 // Application bootstrap utilities
 export * from './application';
 
-// Enhanced base stage classes
+// Stack classes (base + library implementations)
+export * from './stacks';
+
+// Construct classes
+export * from './constructs';
+
+// Enhanced stage classes
 export * from './stages';
 
-// Re-export everything from L1 for convenience
-export * from './l1';
-
-// Re-export common utilities
+// Common utilities
 export * from './common';
-
-// L2 exports will be added here when L2 abstractions are created
-// export * from './l2';
