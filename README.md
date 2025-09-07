@@ -19,7 +19,7 @@ organization's AWS projects.
 - **Simplified Import Paths**: Clean, logical module organization for better developer experience
 - **Dual Module Support**: Full ESM and CommonJS compatibility with modern tsup bundler
 
-## 📦 Installation
+## Installation
 
 ```bash
 # Using npm
@@ -39,7 +39,7 @@ pnpm add @codeiqlabs/aws-cdk
 npm install aws-cdk-lib constructs @codeiqlabs/aws-utils
 ```
 
-## 🛠️ Build System
+## Build System
 
 This package uses **tsup** for modern dual ESM/CJS publishing:
 
@@ -83,11 +83,13 @@ const identityStack = new ManagementIdentityCenterStack(app, 'IdentityCenter', {
 Create stages that automatically manage stack creation and dependencies:
 
 ```typescript
+import type { Construct } from 'constructs';
 import {
   DeclarativeManagementBaseStage,
   ManagementOrganizationsStack,
   ManagementIdentityCenterStack,
   type ManagementStackRegistration,
+  type EnhancedManagementStageProps,
 } from '@codeiqlabs/aws-cdk';
 
 export class ManagementStage extends DeclarativeManagementBaseStage {
@@ -127,7 +129,13 @@ export class ManagementStage extends DeclarativeManagementBaseStage {
 Foundation classes for custom stack implementations:
 
 ```typescript
-import { ManagementBaseStack, WorkloadBaseStack } from '@codeiqlabs/aws-cdk/stacks';
+import type { Construct } from 'constructs';
+import {
+  ManagementBaseStack,
+  WorkloadBaseStack,
+  type ManagementBaseStackProps,
+  type WorkloadBaseStackProps
+} from '@codeiqlabs/aws-cdk/stacks';
 
 // Custom management account stack
 class CustomManagementStack extends ManagementBaseStack {
@@ -137,18 +145,21 @@ class CustomManagementStack extends ManagementBaseStack {
   }
 }
 
-new MyWorkloadStack(app, 'MyWorkloadStack', {
-  naming: new ResourceNaming({ project: 'MyProject', environment: 'nprd' }),
-  description: 'MyProject non-production infrastructure',
-});
+// Custom workload account stack
+class CustomWorkloadStack extends WorkloadBaseStack {
+  constructor(scope: Construct, id: string, props: WorkloadBaseStackProps) {
+    super(scope, id, 'CustomComponent', props);
+    // Automatic tagging and naming already applied
+  }
+}
 ```
 
-### L1 Constructs - Deployment Permissions
+### Deployment Permissions Construct
 
 Standardized cross-account roles and GitHub OIDC setup:
 
 ```typescript
-import { DeploymentPermissionsConstruct } from '@codeiqlabs/aws-cdk';
+import { DeploymentPermissionsConstruct } from '@codeiqlabs/aws-cdk/constructs';
 
 const deploymentPermissions = new DeploymentPermissionsConstruct(this, 'DeploymentPermissions', {
   naming: this.naming,
@@ -166,15 +177,17 @@ const deploymentPermissions = new DeploymentPermissionsConstruct(this, 'Deployme
 });
 ```
 
-### L1 Constructs - Organizations
+### Organizations Construct
 
 AWS Organizations setup with OUs and accounts:
 
 ```typescript
-import { OrganizationsConstruct } from '@codeiqlabs/aws-cdk';
+import { OrganizationConstruct } from '@codeiqlabs/aws-cdk/constructs';
 
-const organizations = new OrganizationsConstruct(this, 'Organizations', {
+const organizations = new OrganizationConstruct(this, 'Organizations', {
   naming: this.naming,
+  mode: 'create', // or 'adopt'
+  rootId: 'r-1234567890',
   organizationalUnits: [
     {
       name: 'MyOrganization',
@@ -192,18 +205,20 @@ const organizations = new OrganizationsConstruct(this, 'Organizations', {
       ],
     },
   ],
+  featureSet: 'ALL',
 });
 ```
 
-### L1 Constructs - Identity Center
+### Identity Center Construct
 
 AWS SSO permission sets and assignments:
 
 ```typescript
-import { IdentityCenterConstruct } from '@codeiqlabs/aws-cdk';
+import { IdentityCenterConstruct } from '@codeiqlabs/aws-cdk/constructs';
 
 const identityCenter = new IdentityCenterConstruct(this, 'IdentityCenter', {
   naming: this.naming,
+  instanceArn: 'arn:aws:sso:::instance/ssoins-1234567890abcdef',
   permissionSets: [
     {
       name: 'AdminAccess',
@@ -225,6 +240,9 @@ const identityCenter = new IdentityCenterConstruct(this, 'IdentityCenter', {
       targetId: '123456789012',
     },
   ],
+  accountIds: { Management: '123456789012' },
+  owner: 'Platform Team',
+  company: 'MyOrganization',
 });
 ```
 
@@ -233,7 +251,7 @@ const identityCenter = new IdentityCenterConstruct(this, 'IdentityCenter', {
 Automatic tagging with consistent patterns:
 
 ```typescript
-import { applyStandardTags } from '@codeiqlabs/aws-cdk';
+import { applyStandardTags } from '@codeiqlabs/aws-cdk/common';
 
 // Apply to any CDK construct
 applyStandardTags(myConstruct, {
@@ -248,80 +266,130 @@ applyStandardTags(myConstruct, {
 });
 ```
 
-## 🏗️ Architecture
+## Architecture
 
 ### Repository Structure
 
 ```
 src/
-├── l1/                     # Level 1 abstractions
-│   └── cdk/               # CDK wrapper utilities
-│       ├── deployment-permissions/  # Cross-account roles & GitHub OIDC
-│       ├── identity-center/         # AWS SSO constructs
-│       ├── organizations/           # AWS Organizations constructs
-│       ├── outputs/                 # CloudFormation output utilities
-│       ├── ssm/                     # SSM parameter utilities
-│       └── stacks/                  # Base stack classes
-├── l2/                     # Level 2 abstractions (future)
-├── common/                 # Shared utilities
-│   └── tagging/           # Tagging functions and utilities
+├── application/            # Application bootstrap utilities
+│   ├── cdk-application.ts # CdkApplication class for automatic manifest loading
+│   ├── stage-factory.ts   # Stage factory for creating stages
+│   └── types.ts           # Application-related types
+├── stacks/                # Stack classes
+│   ├── base/              # Base stack classes
+│   │   ├── management-base.ts  # ManagementBaseStack
+│   │   └── workload-base.ts    # WorkloadBaseStack
+│   └── management/        # Library-provided management stacks
+│       ├── organizations-stack.ts     # ManagementOrganizationsStack
+│       └── identity-center-stack.ts   # ManagementIdentityCenterStack
+├── constructs/            # Reusable CDK constructs
+│   ├── organizations/     # AWS Organizations constructs
+│   ├── identity-center/   # AWS Identity Center (SSO) constructs
+│   └── deployment-permissions/  # Cross-account roles & GitHub OIDC
+├── stages/                # Stage classes with declarative patterns
+│   ├── management-base-stage.ts           # ManagementBaseStage
+│   ├── workload-base-stage.ts             # WorkloadBaseStage
+│   ├── declarative-management-base-stage.ts  # DeclarativeManagementBaseStage
+│   └── declarative-types.ts               # Declarative pattern types
+├── common/                # Shared utilities
+│   ├── tagging/           # Tagging functions and utilities
+│   ├── ssm/               # SSM parameter utilities
+│   ├── outputs/           # CloudFormation output utilities
+│   └── aspects/           # CDK aspects
 └── index.ts               # Main entry point
 ```
 
-### Level 1 (L1) Constructs
+### Library-Provided Stacks
 
-**Thin wrappers** around AWS CDK constructs providing:
+**Pre-built, reusable stack implementations** for common infrastructure patterns:
 
+- **ManagementOrganizationsStack** - Complete AWS Organizations setup with OUs and accounts
+- **ManagementIdentityCenterStack** - AWS Identity Center (SSO) with permission sets and assignments
+- **BaseStack + L2 Construct Pattern** - Each stack wraps a single high-level construct with minimal business logic
+
+**Benefits:**
+- Eliminates 60-70% of boilerplate code in consuming applications
+- Ensures consistent patterns across all management accounts
+- Centralized maintenance and improvements
+- Type-safe configuration with comprehensive validation
+
+### Declarative Stage Pattern
+
+**Automatic stack creation with dependency resolution:**
+
+- **DeclarativeManagementBaseStage** - Orchestrates stack creation based on registrations
+- **ManagementStackRegistration** - Type-safe stack registration interface
+- **Automatic Features** - Conditional creation, dependency injection, error handling
+
+**Benefits:**
+- Applications become pure orchestration layers
+- Automatic dependency resolution between stacks
+- Conditional stack creation based on manifest configuration
+- Comprehensive error handling and validation
+
+### Reusable Constructs
+
+**Standardized CDK constructs** providing consistent patterns:
+
+- **Organizations** - AWS Organizations, OUs, and accounts with SSM parameters
+- **Identity Center** - AWS SSO permission sets and assignments
+- **Deployment Permissions** - Cross-account roles and GitHub OIDC providers
+- **SSM Parameters** - Standardized parameter creation and management
+- **Outputs** - CloudFormation output utilities with naming conventions
+
+All constructs follow these principles:
 - Standardized naming and tagging patterns
 - Consistent SSM parameter and CloudFormation output creation
 - Type-safe configuration with validation
 - Reusable patterns for common AWS resources
 
-**Available L1 Constructs:**
-
-- **Deployment Permissions** - Cross-account roles and GitHub OIDC providers
-- **Identity Center** - AWS SSO permission sets and assignments
-- **Organizations** - AWS Organizations, OUs, and accounts
-- **SSM Parameters** - Standardized parameter creation and management
-- **Base Stacks** - Pre-configured stack classes with consistent patterns
-- **Outputs** - CloudFormation output utilities with naming conventions
-
-### Level 2 (L2) Constructs (Future)
-
-**Higher-level patterns** combining multiple L1 constructs:
-
-- Complete application stacks (S3 + CloudFront + API Gateway)
-- Database clusters with monitoring and backup
-- CI/CD pipeline constructs
-- Multi-environment deployment patterns
-
-## 🏷️ Module Formats
+## Module Formats
 
 This package supports both ESM and CommonJS with automatic dual publishing:
 
 ### ESM (Recommended)
 
 ```typescript
+// Library-provided stacks
 import {
-  ManagementBaseStack,
-  WorkloadBaseStack,
-  DeploymentPermissionsConstruct,
-  applyStandardTags,
-} from '@codeiqlabs/aws-cdk';
+  ManagementOrganizationsStack,
+  ManagementIdentityCenterStack
+} from '@codeiqlabs/aws-cdk/stacks';
+
+// Base stack classes
+import { ManagementBaseStack, WorkloadBaseStack } from '@codeiqlabs/aws-cdk/stacks';
+
+// Constructs
+import { DeploymentPermissionsConstruct } from '@codeiqlabs/aws-cdk/constructs';
+
+// Utilities
+import { applyStandardTags } from '@codeiqlabs/aws-cdk/common';
+
+// Stage classes
+import { DeclarativeManagementBaseStage } from '@codeiqlabs/aws-cdk/stages';
 ```
 
 ### CommonJS
 
 ```javascript
+// Library-provided stacks
 const {
-  ManagementBaseStack,
-  WorkloadBaseStack,
-  DeploymentPermissionsConstruct,
-  applyStandardTags,
-} = require('@codeiqlabs/aws-cdk');
+  ManagementOrganizationsStack,
+  ManagementIdentityCenterStack
+} = require('@codeiqlabs/aws-cdk/stacks');
+
+// Base stack classes
+const { ManagementBaseStack, WorkloadBaseStack } = require('@codeiqlabs/aws-cdk/stacks');
+
+// Constructs
+const { DeploymentPermissionsConstruct } = require('@codeiqlabs/aws-cdk/constructs');
+
+// Utilities
+const { applyStandardTags } = require('@codeiqlabs/aws-cdk/common');
 ```
 
-## 🔧 Development
+## Development
 
 ### Prerequisites
 
@@ -367,7 +435,7 @@ npm run build
 npm run dev
 ```
 
-## 🧪 Testing
+## Testing
 
 ```bash
 # Run all tests (CJS + ESM import tests)
@@ -378,7 +446,7 @@ npm run test:load    # Configuration loading tests
 npm run test:esm     # ESM import tests
 ```
 
-## 🔗 Dependencies
+## Dependencies
 
 ### Core Dependencies
 
@@ -390,7 +458,7 @@ npm run test:esm     # ESM import tests
 - **aws-cdk-lib** - AWS CDK library (v2.123.0+)
 - **constructs** - CDK constructs library
 
-## 🔄 Integration with @codeiqlabs/eslint-prettier-config
+## Integration with @codeiqlabs/eslint-prettier-config
 
 This package uses the centralized ESLint and Prettier configuration:
 
@@ -409,7 +477,37 @@ The v1.5.0 release includes:
 - **Zero dependency conflicts** with the new bundler approach
 - **Enhanced TypeScript rules** and better error handling
 
-## 🚀 Release Process
+## Contributing
+
+### Adding New Library Stacks
+
+1. Create a new stack file under `src/stacks/management/` or `src/stacks/workload/`
+2. Extend the appropriate base stack class (`ManagementBaseStack` or `WorkloadBaseStack`)
+3. Follow the BaseStack + L2 Construct pattern (wrap a single high-level construct)
+4. Add comprehensive TypeScript types and props interfaces
+5. Update the appropriate `index.ts` to export your stack
+6. Add usage examples to this README
+
+### Adding New Constructs
+
+1. Create a new directory under `src/constructs/`
+2. Implement your construct following existing patterns
+3. Add comprehensive TypeScript types
+4. Include SSM parameter and CloudFormation output creation
+5. Update the main `index.ts` to export your construct
+6. Add usage examples to this README
+
+### Code Quality
+
+This project uses:
+
+- **ESLint** with `@codeiqlabs/eslint-prettier-config` for code quality
+- **Prettier** for consistent code formatting
+- **TypeScript** for type safety
+- **Husky** for pre-commit hooks
+- **lint-staged** for staged file linting
+
+## Release Process
 
 This package uses automated release management with changesets:
 
@@ -424,7 +522,7 @@ This package uses automated release management with changesets:
 - **minor**: New constructs, new features, additive changes
 - **major**: Breaking changes, removed constructs, changed APIs
 
-## 📄 License
+## License
 
 MIT - See [LICENSE](LICENSE) file for details.
 
