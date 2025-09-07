@@ -50,9 +50,15 @@ This package uses **tsup** for modern dual ESM/CJS publishing:
 
 ## Usage Examples
 
-### Library-Provided Management Stacks
+The library provides **two distinct usage patterns** for consuming library-provided management stacks. Choose the approach that best fits your project's complexity and requirements:
 
-Use pre-built, reusable stack implementations for common infrastructure patterns:
+### Option A: Direct Stack Usage (Imperative)
+
+**Best for:** Simple scenarios, prototyping, or when you need full control over stack instantiation and dependency management.
+
+**Benefits:** Maximum flexibility, explicit control, easy to understand and debug.
+
+Use pre-built, reusable stack implementations directly in your CDK applications:
 
 ```typescript
 import {
@@ -70,17 +76,21 @@ const orgStack = new ManagementOrganizationsStack(app, 'Organizations', {
   orgRootId: manifest.organization.rootId,
 });
 
-// Pre-built Identity Center stack with automatic dependency resolution
+// Pre-built Identity Center stack with manual dependency injection
 const identityStack = new ManagementIdentityCenterStack(app, 'IdentityCenter', {
   managementConfig: config,
   config: manifest,
-  accountIds: orgStack.accountIds, // Automatic dependency injection
+  accountIds: orgStack.accountIds, // Manual dependency injection
 });
 ```
 
-### Declarative Stage Pattern
+### Option B: Declarative Stage Pattern
 
-Create stages that automatically manage stack creation and dependencies:
+**Best for:** Complex scenarios, production environments, or when you want automatic dependency resolution and conditional logic.
+
+**Benefits:** Automatic orchestration, dependency resolution, conditional stack creation, reduced boilerplate code.
+
+Create stages that automatically manage stack creation, dependencies, and conditional logic based on manifest configuration:
 
 ```typescript
 import type { Construct } from 'constructs';
@@ -123,6 +133,12 @@ export class ManagementStage extends DeclarativeManagementBaseStage {
   }
 }
 ```
+
+**Choosing Between Patterns:**
+- **Use Option A (Direct)** when you need explicit control, are building simple applications, or want to understand exactly what's happening
+- **Use Option B (Declarative)** when you want automatic orchestration, have complex dependency chains, or need conditional stack creation based on configuration
+
+Both patterns use the same underlying library-provided stacks, so you can start with Option A and migrate to Option B as your requirements grow.
 
 ### Base Stack Classes
 
