@@ -1,6 +1,7 @@
 // Test ESM imports for aws-cdk
 import { ManagementBaseStack, WorkloadBaseStack } from '../dist/index.js';
 
+// eslint-disable-next-line no-console
 console.log('Testing ESM imports for aws-cdk...');
 
 // Test that utilities are available
@@ -12,4 +13,5 @@ if (typeof WorkloadBaseStack !== 'function') {
   throw new Error('WorkloadBaseStack should be a function');
 }
 
+// eslint-disable-next-line no-console
 console.log('✅ ESM import test for aws-cdk passed');

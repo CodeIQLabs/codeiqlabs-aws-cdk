@@ -52,11 +52,16 @@
  */
 
 // Base stage classes
-export { ManagementBaseStage } from './management-base-stage';
-export { WorkloadBaseStage } from './workload-base-stage';
+export { ManagementBaseStage } from './base/management-base-stage';
+export { WorkloadBaseStage } from './base/workload-base-stage';
 
-// Declarative stage classes
-export { DeclarativeManagementBaseStage } from './declarative-management-base-stage';
+// Management pattern-specific stages
+export { OrganizationsStage } from './management/organizations-stage';
+export { IdentityCenterStage } from './management/identity-center-stage';
+export { DomainAuthorityStage } from './management/domain-authority-stage';
+
+// Workload pattern-specific stages
+export { StaticHostingStage } from './workload/static-hosting-stage';
 
 // Type definitions
 export type {
@@ -72,10 +77,3 @@ export type {
   StackCreationOptions,
   StackCreationResult,
 } from './stage-types';
-
-// Declarative types
-export type {
-  ManagementStackRegistration,
-  WorkloadStackRegistration,
-  DeclarativeStackResult,
-} from './declarative-types';

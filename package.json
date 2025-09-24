@@ -62,7 +62,7 @@
     "url": "https://github.com/CodeIQLabs/codeiqlabs-aws-cdk"
   },
   "dependencies": {
-    "@codeiqlabs/aws-utils": "^1.7.0"
+    "@codeiqlabs/aws-utils": "^1.7.1"
   },
   "optionalDependencies": {
     "@rollup/rollup-linux-x64-gnu": "^4.21.0"

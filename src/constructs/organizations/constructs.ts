@@ -8,10 +8,7 @@
 import * as cdk from 'aws-cdk-lib';
 import * as orgs from 'aws-cdk-lib/aws-organizations';
 import { Construct } from 'constructs';
-import {
-  createAccountIdParameter,
-  createOrganizationParameter,
-} from '../../common/ssm/convenience';
+// Note: SSM parameter creation removed - implement directly if needed
 import type {
   OrganizationConstructProps,
   OrganizationalUnitConstructProps,
@@ -75,16 +72,7 @@ export class OrganizationConstruct extends Construct {
       Object.assign(this.accountIds, ouConstruct.accountIds);
     }
 
-    // Create root ID SSM parameter
-    if (props.createSsmParameters !== false) {
-      createOrganizationParameter(
-        this,
-        props.naming,
-        'root-id',
-        props.rootId,
-        'AWS Organization Root ID',
-      );
-    }
+    // Note: SSM parameter creation removed - implement directly if needed
   }
 
   /**
@@ -159,16 +147,7 @@ export class OrganizationalUnitConstruct extends Construct {
       this.accountIds[accountConfig.key] = accountResult.accountId;
     }
 
-    // Create OU ID SSM parameter
-    if (props.createSsmParameters !== false) {
-      createOrganizationParameter(
-        this,
-        naming,
-        `${config.key}-ou-id`,
-        this.ouId,
-        `Organizational Unit ID for ${config.name}`,
-      );
-    }
+    // Note: SSM parameter creation removed - implement directly if needed
   }
 
   /**
@@ -236,10 +215,7 @@ export class AccountConstruct extends Construct {
       });
     }
 
-    // Create SSM parameter
-    if (props.createSsmParameters !== false) {
-      createAccountIdParameter(this, naming, config.key, this.accountId, config.name);
-    }
+    // Note: SSM parameter creation removed - implement directly if needed
   }
 
   /**

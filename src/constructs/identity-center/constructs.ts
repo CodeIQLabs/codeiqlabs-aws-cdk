@@ -9,7 +9,7 @@ import * as cdk from 'aws-cdk-lib';
 import * as sso from 'aws-cdk-lib/aws-sso';
 import { Construct } from 'constructs';
 import { generateStandardTags, convertToCfnTags } from '@codeiqlabs/aws-utils';
-import { createIdentityCenterParameter } from '../../common/ssm/convenience';
+// Note: SSM parameter creation removed - implement directly if needed
 import type {
   IdentityCenterConstructProps,
   PermissionSetConstructProps,
@@ -93,15 +93,7 @@ export class IdentityCenterConstruct extends Construct {
       });
     }
 
-    if (props.createSsmParameters !== false) {
-      createIdentityCenterParameter(
-        this,
-        props.naming,
-        'instance-arn',
-        props.instanceArn,
-        'AWS Identity Center Instance ARN',
-      );
-    }
+    // Note: SSM parameter creation removed - implement directly if needed
   }
 
   /**
@@ -160,16 +152,7 @@ export class PermissionSetConstruct extends Construct {
       });
     }
 
-    // Create SSM parameter
-    if (props.createSsmParameters !== false) {
-      createIdentityCenterParameter(
-        this,
-        naming,
-        `permission-set-${config.name.toLowerCase().replace(/[^a-z0-9]/g, '-')}-arn`,
-        this.arn,
-        `Permission Set ARN for ${config.name}`,
-      );
-    }
+    // Note: SSM parameter creation removed - implement directly if needed
   }
 }
 

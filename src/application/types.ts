@@ -26,6 +26,7 @@ export interface CdkApplicationOptions {
   /**
    * Expected manifest type for validation
    * If provided, the application will validate that the loaded manifest matches this type
+   * If not provided, the type will be auto-detected from the manifest structure
    */
   expectedType?: ManifestType;
 
@@ -54,7 +55,7 @@ export interface StageCreationOptions {
   /**
    * Additional properties to pass to the stage constructor
    */
-  additionalProps?: Record<string, any>;
+  additionalProps?: Record<string, unknown>;
 
   /**
    * Override the default stage name generation
@@ -93,7 +94,7 @@ export interface WorkloadStageOptions extends StageCreationOptions {
 export type StageConstructor<T extends cdk.Stage> = new (
   scope: Construct,
   id: string,
-  props: any,
+  props: cdk.StageProps,
 ) => T;
 
 /**

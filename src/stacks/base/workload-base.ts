@@ -26,9 +26,10 @@
  */
 
 import * as cdk from 'aws-cdk-lib';
+import { Tags } from 'aws-cdk-lib';
 import type { Construct } from 'constructs';
 import { ResourceNaming } from '@codeiqlabs/aws-utils';
-import { applyStandardTags } from '../../common/tagging/cdk';
+import { generateStandardTags } from '@codeiqlabs/aws-utils';
 
 /**
  * Configuration for WorkloadBaseStack
@@ -139,10 +140,14 @@ export abstract class WorkloadBaseStack extends cdk.Stack {
     this.workloadConfig = workloadConfig;
 
     // Apply standard tags to all resources in this stack
-    applyStandardTags(this, naming.getConfig(), {
+    const standardTags = generateStandardTags(naming.getConfig(), {
       component,
       owner: workloadConfig.owner,
       company: workloadConfig.company,
+    });
+
+    Object.entries(standardTags).forEach(([key, value]) => {
+      Tags.of(this).add(key, value);
     });
   }
 

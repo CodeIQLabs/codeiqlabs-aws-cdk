@@ -1,9 +1,8 @@
 # @codeiqlabs/aws-cdk
 
-**Reusable AWS CDK library with pre-built stacks and declarative patterns** - A comprehensive
-TypeScript library providing reusable stack implementations, constructs, and declarative stage
-patterns that eliminate repetitive code and accelerate infrastructure development across any
-organization's AWS projects.
+The CodeIQLabs CDK follows a 5-layer architecture that automatically detects the infrastructure
+pattern from your `manifest.yaml` file and creates the appropriate AWS resources with built-in
+naming, tagging, and best practices.
 
 ## Key Features
 
@@ -18,6 +17,250 @@ organization's AWS projects.
 - **Type Safety**: Full TypeScript support with comprehensive type definitions and validation
 - **Simplified Import Paths**: Clean, logical module organization for better developer experience
 - **Dual Module Support**: Full ESM and CommonJS compatibility with modern tsup bundler
+
+```mermaid
+graph TD
+  A[<b>manifest.yaml</b>] --> B[<b>createAutoApp</b><br/>application/factories/app-factory.ts]
+
+  B --> C[<b>CdkApplication.create</b><br/>application/cdk-application.ts]
+  C --> D[<b>initializeApp</b><br/>aws-utils package]
+  D --> E[<b>Manifest Loading & Validation</b>]
+  E --> F{<b>manifestType Detection</b>}
+
+  F -->|type: management| G[<b>Management Flow</b>]
+  F -->|type: workload| H[<b>Workload Flow</b>]
+
+  G --> I[<b>ManagementOrchestrator</b><br/>application/orchestration/management-orchestrator.ts]
+  I --> J{<b>detectManagementComponents</b><br/>detection/management-detector.ts}
+  I --> K[<b>ManagementStageRegistry</b><br/>application/registry/management-stage-registry.ts]
+
+  J --> J1[<b>Check config.organizations</b><br/>organizations.enabled === true]
+  J --> J2[<b>Check config.identityCenter</b><br/>identityCenter.enabled === true]
+  J --> J3[<b>Check config.domainAuthority</b><br/>domainAuthority.enabled === true]
+
+  K --> L[<b>OrganizationsStage</b><br/>stages/management/organizations-stage.ts]
+  K --> M[<b>IdentityCenterStage</b><br/>stages/management/identity-center-stage.ts]
+  K --> N[<b>DomainAuthorityStage</b><br/>stages/management/domain-authority-stage.ts]
+
+  J1 -.-> L
+  J2 -.-> M
+  J3 -.-> N
+
+  L --> L1[<b>ManagementOrganizationsStack</b><br/>stacks/management/organizations-stack.ts]
+  M --> M1[<b>ManagementIdentityCenterStack</b><br/>stacks/management/identity-center-stack.ts]
+  N --> N1[<b>DomainDelegationStack</b><br/>stacks/management/domain-delegation-stack.ts]
+
+  L1 --> L2[<b>OrganizationConstruct</b><br/>constructs/organizations/constructs.ts]
+  M1 --> M2[<b>IdentityCenterConstruct</b><br/>constructs/identity-center/constructs.ts]
+  N1 --> N2[<b>Route53 & Lambda</b><br/>stacks/management/domain-delegation-stack.ts]
+
+  H --> O[<b>WorkloadOrchestrator</b><br/>application/orchestration/workload-orchestrator.ts]
+  O --> P{<b>detectWorkloadPattern</b><br/>detection/workload-detector.ts}
+  O --> Q[<b>WorkloadStageRegistry</b><br/>application/registry/workload-stage-registry.ts]
+
+  P --> P1[<b>Check config.staticHosting</b><br/>staticHosting.enabled === true]
+  P --> P2[<b>Check environments</b><br/>environments env.domain exists]
+  P --> P3[<b>Default fallback</b><br/>Always returns static-hosting]
+
+  Q --> R[<b>StaticHostingStage</b><br/>stages/workload/static-hosting-stage.ts]
+  P1 -.-> R
+  P2 -.-> R
+  P3 -.-> R
+
+  R --> S[<b>createWorkloadStage</b><br/>for each envName in environments]
+  S --> T[<b>StaticHostingDomainStack</b><br/>stacks/workload/static-hosting-domain-stack.ts]
+  S --> U[<b>StaticHostingFrontendStack</b><br/>stacks/workload/static-hosting-frontend-stack.ts]
+
+  T --> T1[<b>Route53 Constructs</b><br/>constructs/route53/constructs.ts]
+  T --> T2[<b>ACM Constructs</b><br/>constructs/acm/constructs.ts]
+
+  U --> U1[<b>S3 Constructs</b><br/>constructs/s3/constructs.ts]
+  U --> U2[<b>CloudFront Constructs</b><br/>constructs/cloudfront/constructs.ts]
+
+%% Cross-account delegation
+  N1 -.-> T1
+  N2 -.-> T1
+
+%% Styles - lighter fills, darker text
+  classDef manifest fill:#f9fdff,stroke:#01579b,stroke-width:2px,color:#111
+  classDef factory fill:#fffaf2,stroke:#e65100,stroke-width:2px,color:#111
+  classDef orchestration fill:#faf5fc,stroke:#4a148c,stroke-width:2px,color:#111
+  classDef registry fill:#f6fff6,stroke:#2e7d32,stroke-width:2px,color:#111
+  classDef detection fill:#faf5fc,stroke:#4a148c,stroke-width:2px,color:#111
+  classDef mgmt fill:#f6fff6,stroke:#1b5e20,stroke-width:2px,color:#111
+  classDef workload fill:#f9fbff,stroke:#0d47a1,stroke-width:2px,color:#111
+  classDef stacks fill:#fff9fb,stroke:#880e4f,stroke-width:2px,color:#111
+  classDef constructs fill:#ffffff,stroke:#666666,stroke-width:2px,color:#111
+  classDef logic fill:#fffef7,stroke:#f57f17,stroke-width:1px,stroke-dasharray: 5 5,color:#111
+
+  class A manifest
+  class B factory
+  class C,D,E factory
+  class I,O orchestration
+  class K,Q registry
+  class F,J,P detection
+  class G,L,M,N,L1,M1,N1 mgmt
+  class H,R,S,T,U workload
+  class L2,M2,N2,T1,T2,U1,U2 constructs
+  class J1,J2,J3,P1,P2,P3 logic
+
+```
+
+## Core Concepts
+
+### 1. Manifest-Driven Infrastructure
+
+Everything starts with a `manifest.yaml` file that describes your infrastructure requirements:
+
+```yaml
+# Management Account Example
+type: "management"
+project: "CodeIQLabs"
+company: "CodeIQLabs"
+
+# Workload Account Example
+type: "workload"
+project: "MyProject"
+company: "MyCompany"
+environments:
+  nprd:
+    accountId: "123456789012"
+    config:
+      domain:
+        name: "staging.example.com"
+```
+
+### 2. Auto-Detection
+
+The system automatically detects what type of infrastructure to create based on the manifest
+content:
+
+- **Management Type**: Creates organizational infrastructure
+- **Workload Type**: Creates application hosting infrastructure
+
+### 3. Two Core Patterns
+
+#### Management Pattern
+
+Creates foundational organizational infrastructure:
+
+- **AWS Organizations** with OUs and member accounts
+- **Identity Center SSO** with permission sets and assignments
+- **Domain Authority** for cross-account DNS delegation
+
+#### Workload Pattern
+
+Creates static website hosting infrastructure:
+
+- **S3 + CloudFront** for content delivery
+- **Domain Consumer** for subdomain management
+- **Environment-Specific** deployments (nprd/prod)
+
+## Architecture Layers
+
+### Layer 0: Foundation Layer (Core)
+
+- **Base Constructs**: Foundation for all AWS resource constructs
+- **Auto-Tagging**: Automatic tagging applied to all resources
+- **Auto-Naming**: Consistent naming conventions across all resources
+- **Best Practices**: Built-in security and compliance patterns
+
+### Layer 1: Application Layer
+
+**Application Factories:**
+
+- **Factory Functions**: `application/factories/app-factory.ts` - Main entry points
+  (`createAutoApp`, `createManagementApp`, `createWorkloadApp`)
+- **Factory Utilities**: `application/factories/factory-utils.ts` - Shared factory patterns
+
+**Stage Registries:**
+
+- **Management Registry**: `application/registry/management-stage-registry.ts` - Component-based
+  stage registration
+- **Workload Registry**: `application/registry/workload-stage-registry.ts` - Pattern-based stage
+  registration
+- **Registry Types**: `application/registry/stage-registry-types.ts` - Shared type definitions
+
+**Stage Orchestration:**
+
+- **Management Orchestrator**: `application/orchestration/management-orchestrator.ts` - Management
+  stage creation logic
+- **Workload Orchestrator**: `application/orchestration/workload-orchestrator.ts` - Workload stage
+  creation logic
+- **Base Orchestrator**: `application/orchestration/base-orchestrator.ts` - Shared orchestration
+  patterns
+
+**Configuration Management:**
+
+- **App Configuration**: `application/config/app-config.ts` - Application-level configuration and
+  validation
+- **Factory Options**: `application/config/factory-options.ts` - Factory function option types and
+  defaults
+
+**Core Application:**
+
+- **CDK Application**: `application/cdk-application.ts` - CDK application class with manifest
+  loading
+
+### Layer 2: Stage Layer (Orchestration)
+
+- **Base Stages**: Provide common functionality and utilities
+- **Standard Stages**: Implement specific patterns for each use case
+- **Inheritance**: Standard stages extend base stages
+
+### Layer 3: Stack Layer (Infrastructure Groups)
+
+- **Management Stacks**: Organizations, Identity Center, Domain Delegation
+- **Workload Stacks**: Static Hosting Domain, Static Hosting Frontend
+- **Base Stacks**: Common stack functionality
+
+### Layer 4: AWS Service Constructs (Reusable Components)
+
+- **Individual AWS Services**: S3, CloudFront, Route53, ACM, Organizations, Identity Center
+- **Built-in Patterns**: Each construct includes naming, tagging, and best practices
+- **Maximum Reusability**: Can be composed by any stack for different use cases
+
+## Usage
+
+### Simple Auto-Detection Approach
+
+```typescript
+import { createAutoApp } from '@codeiqlabs/aws-cdk';
+
+// Automatically detects type from manifest.yaml
+createAutoApp().then((app) => app.synth());
+```
+
+### Type-Specific Approach
+
+```typescript
+import { createManagementApp, createWorkloadApp } from '@codeiqlabs/aws-cdk';
+
+// Management account
+createManagementApp().then((app) => app.synth());
+
+// Workload account
+createWorkloadApp().then((app) => app.synth());
+```
+
+### Advanced Usage with Direct Module Access
+
+```typescript
+// Direct factory access
+import { createAutoApp } from '@codeiqlabs/aws-cdk/application/factories';
+
+// Registry access for custom stage registration
+import {
+  ManagementStageRegistry,
+  WorkloadStageRegistry,
+} from '@codeiqlabs/aws-cdk/application/registry';
+
+// Orchestrator access for custom orchestration
+import {
+  ManagementOrchestrator,
+  WorkloadOrchestrator,
+} from '@codeiqlabs/aws-cdk/application/orchestration';
+```
 
 ## Installation
 
@@ -39,480 +282,305 @@ pnpm add @codeiqlabs/aws-cdk
 npm install aws-cdk-lib constructs @codeiqlabs/aws-utils
 ```
 
-## Build System
+## Core File List
 
-This package uses **tsup** for modern dual ESM/CJS publishing:
+### Layer 0: Foundation Layer (Core)
 
-- **Fast builds** with automatic optimization and tree-shaking
-- **Source maps** for better debugging experience
-- **Type definitions** automatically generated for both ESM and CJS
-- **Modern bundler approach** following TypeScript library best practices
+Core constructs with automatic naming and tagging patterns.
 
-## Usage Examples
+- `src/core/constructs/tagged-construct.ts` - Auto-tagging construct
+- `src/core/constructs/named-construct.ts` - Auto-naming construct
 
-The library provides **two distinct usage patterns** for consuming library-provided management stacks. Choose the approach that best fits your project's complexity and requirements:
+### Layer 1: Application Layer
 
-### Option A: Direct Stack Usage (Imperative)
+Auto-detection and application bootstrap functionality with modular architecture.
 
-**Best for:** Simple scenarios, prototyping, or when you need full control over stack instantiation and dependency management.
+**Application Factories:**
 
-**Benefits:** Maximum flexibility, explicit control, easy to understand and debug.
+- `src/application/factories/app-factory.ts` - Main factory functions (`createAutoApp`,
+  `createManagementApp`, `createWorkloadApp`)
+- `src/application/factories/factory-utils.ts` - Shared factory utilities
 
-Use pre-built, reusable stack implementations directly in your CDK applications:
+**Stage Registries:**
+
+- `src/application/registry/management-stage-registry.ts` - Component-based stage registration and
+  lookup
+- `src/application/registry/workload-stage-registry.ts` - Pattern-based stage registration and
+  lookup
+- `src/application/registry/stage-registry-types.ts` - Shared registry type definitions
+
+**Stage Orchestration:**
+
+- `src/application/orchestration/management-orchestrator.ts` - Management stage creation logic
+- `src/application/orchestration/workload-orchestrator.ts` - Workload stage creation logic
+- `src/application/orchestration/base-orchestrator.ts` - Shared orchestration patterns
+
+**Configuration Management:**
+
+- `src/application/config/app-config.ts` - Application-level configuration and validation
+- `src/application/config/factory-options.ts` - Factory function option types and defaults
+
+**Core Application:**
+
+- `src/application/cdk-application.ts` - CDK application class with manifest loading
+
+### Layer 2: Stage Layer (Orchestration)
+
+High-level orchestration of infrastructure deployment with pattern-specific stages.
+
+**Base Stages (Foundation):**
+
+- `src/stages/base/management-base-stage.ts` - Base management stage with common functionality
+- `src/stages/base/workload-base-stage.ts` - Base workload stage with common functionality
+
+**Management Stages (Pattern-Specific):**
+
+- `src/stages/management/organizations-stage.ts` - AWS Organizations infrastructure stage
+- `src/stages/management/identity-center-stage.ts` - Identity Center SSO infrastructure stage
+- `src/stages/management/domain-authority-stage.ts` - Domain authority and delegation stage
+
+**Workload Stages (Pattern-Specific):**
+
+- `src/stages/workload/static-hosting-stage.ts` - Static website hosting (S3 + CloudFront)
+
+### Layer 3: Stack Layer (Infrastructure Groups)
+
+Reusable stack classes that group related infrastructure components.
+
+**Base Stack Classes:**
+
+- `src/stacks/base/management-base.ts` - Base management stack functionality
+- `src/stacks/base/workload-base.ts` - Base workload stack functionality
+
+**Management Account Stacks:**
+
+- `src/stacks/management/organizations-stack.ts` - AWS Organizations infrastructure
+- `src/stacks/management/identity-center-stack.ts` - Identity Center SSO infrastructure
+- `src/stacks/management/domain-delegation-stack.ts` - Domain Authority infrastructure
+
+**Workload Account Stacks:**
+
+- `src/stacks/workload/static-hosting-domain-stack.ts` - Domain Consumer infrastructure
+- `src/stacks/workload/static-hosting-frontend-stack.ts` - S3 + CloudFront infrastructure
+
+### Layer 4: AWS Service Constructs (Reusable Components)
+
+Individual AWS service constructs with built-in naming, tagging, and best practices.
+
+**Static Hosting Service Constructs:**
+
+- `src/constructs/s3/constructs.ts` - S3 bucket constructs with naming/tagging
+- `src/constructs/cloudfront/constructs.ts` - CloudFront distribution constructs
+- `src/constructs/route53/constructs.ts` - Route53 hosted zone, records constructs
+- `src/constructs/acm/constructs.ts` - SSL Certificate constructs
+
+**Management Service Constructs:**
+
+- `src/constructs/organizations/constructs.ts` - Organizations constructs (OUs, Accounts, SCPs)
+- `src/constructs/identity-center/constructs.ts` - Identity Center constructs (Permission Sets,
+  Assignments)
+
+### Detection Logic
+
+Auto-detection utilities for determining infrastructure patterns.
+
+- `src/detection/workload-detector.ts` - Workload pattern detection logic
+- `src/detection/management-detector.ts` - Management component detection logic
+
+### Package Root
+
+- `src/index.ts` - Main package exports (entry point)
+
+## Architecture Summary
+
+### Core Infrastructure Patterns
+
+**Management Account Infrastructure:**
+
+- **OrganizationsStage** - AWS Organizations with OUs and accounts
+- **IdentityCenterStage** - Identity Center SSO with permission sets
+- **DomainAuthorityStage** - Domain authority and cross-account delegation
+
+**Static Website Infrastructure:**
+
+- **StaticHostingStage** - S3 + CloudFront hosting with custom domains
+
+## Auto-Detection Flow
+
+The architecture uses pattern detection to automatically select the appropriate infrastructure:
+
+### 1. Pattern Detection
 
 ```typescript
-import {
-  ManagementOrganizationsStack,
-  ManagementIdentityCenterStack,
-} from '@codeiqlabs/aws-cdk/stacks';
-import { App } from 'aws-cdk-lib';
+// src/detection/workload-detector.ts
+function detectWorkloadPattern(config: WorkloadAppConfig): 'static-hosting' {
+  // Currently supports static hosting pattern
+  return 'static-hosting';
+}
 
-const app = new App();
-
-// Pre-built Organizations stack
-const orgStack = new ManagementOrganizationsStack(app, 'Organizations', {
-  managementConfig: config,
-  config: manifest,
-  orgRootId: manifest.organization.rootId,
-});
-
-// Pre-built Identity Center stack with manual dependency injection
-const identityStack = new ManagementIdentityCenterStack(app, 'IdentityCenter', {
-  managementConfig: config,
-  config: manifest,
-  accountIds: orgStack.accountIds, // Manual dependency injection
-});
+// src/detection/management-detector.ts
+function detectManagementComponents(config: ManagementAppConfig): string[] {
+  const components = [];
+  if (config.organizations) components.push('organizations');
+  if (config.identityCenter) components.push('identityCenter');
+  if (config.domain) components.push('domainAuthority');
+  return components;
+}
 ```
 
-### Option B: Declarative Stage Pattern
+### 2. Modular Application Architecture
 
-**Best for:** Complex scenarios, production environments, or when you want automatic dependency resolution and conditional logic.
-
-**Benefits:** Automatic orchestration, dependency resolution, conditional stack creation, reduced boilerplate code.
-
-Create stages that automatically manage stack creation, dependencies, and conditional logic based on manifest configuration:
+**Factory Implementation:**
 
 ```typescript
-import type { Construct } from 'constructs';
-import {
-  DeclarativeManagementBaseStage,
-  ManagementOrganizationsStack,
-  ManagementIdentityCenterStack,
-  type ManagementStackRegistration,
-  type EnhancedManagementStageProps,
-} from '@codeiqlabs/aws-cdk';
+// src/application/factories/app-factory.ts
+export async function createAutoApp(options: CdkApplicationOptions = {}): Promise<CdkApplication> {
+  const app = await CdkApplication.create(options);
 
-export class ManagementStage extends DeclarativeManagementBaseStage {
-  constructor(scope: Construct, id: string, props: EnhancedManagementStageProps) {
-    super(scope, id, props);
-    this.createRegisteredStacks(); // One line creates all stacks!
+  switch (app.manifestType) {
+    case 'management':
+      const managementOrchestrator = new ManagementOrchestrator();
+      managementOrchestrator.createStages(app);
+      break;
+    case 'workload':
+      const workloadOrchestrator = new WorkloadOrchestrator();
+      workloadOrchestrator.createStages(app);
+      break;
   }
 
-  protected registerStacks(): ManagementStackRegistration<any>[] {
-    return [
-      {
-        stackClass: ManagementOrganizationsStack,
-        component: 'Organizations',
-        enabled: (manifest) => manifest.organization?.enabled === true,
-        additionalProps: (manifest) => ({
-          config: manifest,
-          orgRootId: manifest.organization.rootId,
-        }),
-      },
-      {
-        stackClass: ManagementIdentityCenterStack,
-        component: 'IdentityCenter',
-        enabled: (manifest) => manifest.identityCenter?.enabled === true,
-        dependencies: ['Organizations'], // Automatic dependency resolution
-        additionalProps: (manifest, deps) => ({
-          config: manifest,
-          accountIds: (deps.Organizations as ManagementOrganizationsStack).accountIds,
-        }),
-      },
-    ];
+  return app;
+}
+```
+
+**Management Orchestrator:**
+
+```typescript
+// src/application/orchestration/management-orchestrator.ts
+export class ManagementOrchestrator {
+  private registry = new ManagementStageRegistry();
+
+  createStages(app: CdkApplication): void {
+    const managementConfig = app.config as ManagementConfig;
+    const components = detectManagementComponents(managementConfig);
+
+    for (const component of components) {
+      const stageClass = this.registry.getStage(component);
+      if (stageClass) {
+        app.createManagementStage(stageClass);
+      }
+    }
   }
 }
 ```
 
-**Choosing Between Patterns:**
-- **Use Option A (Direct)** when you need explicit control, are building simple applications, or want to understand exactly what's happening
-- **Use Option B (Declarative)** when you want automatic orchestration, have complex dependency chains, or need conditional stack creation based on configuration
-
-Both patterns use the same underlying library-provided stacks, so you can start with Option A and migrate to Option B as your requirements grow.
-
-### Base Stack Classes
-
-Foundation classes for custom stack implementations:
+**Workload Orchestrator:**
 
 ```typescript
-import type { Construct } from 'constructs';
-import {
-  ManagementBaseStack,
-  WorkloadBaseStack,
-  type ManagementBaseStackProps,
-  type WorkloadBaseStackProps
-} from '@codeiqlabs/aws-cdk/stacks';
+// src/application/orchestration/workload-orchestrator.ts
+export class WorkloadOrchestrator {
+  private registry = new WorkloadStageRegistry();
 
-// Custom management account stack
-class CustomManagementStack extends ManagementBaseStack {
-  constructor(scope: Construct, id: string, props: ManagementBaseStackProps) {
-    super(scope, id, 'CustomComponent', props);
-    // Automatic tagging and naming already applied
-  }
-}
+  createStages(app: CdkApplication): void {
+    const workloadConfig = app.config as WorkloadConfig;
+    const pattern = detectWorkloadPattern(workloadConfig);
 
-// Custom workload account stack
-class CustomWorkloadStack extends WorkloadBaseStack {
-  constructor(scope: Construct, id: string, props: WorkloadBaseStackProps) {
-    super(scope, id, 'CustomComponent', props);
-    // Automatic tagging and naming already applied
+    const stageClass = this.registry.getStage(pattern);
+    if (stageClass) {
+      for (const [envName] of Object.entries(workloadConfig.environments)) {
+        app.createWorkloadStage(envName, stageClass);
+      }
+    }
   }
 }
 ```
 
-### Deployment Permissions Construct
-
-Standardized cross-account roles and GitHub OIDC setup:
+**Stage Registry Examples:**
 
 ```typescript
-import { DeploymentPermissionsConstruct } from '@codeiqlabs/aws-cdk/constructs';
-
-const deploymentPermissions = new DeploymentPermissionsConstruct(this, 'DeploymentPermissions', {
-  naming: this.naming,
-  projects: [
-    {
-      name: 'MyProject',
-      environments: ['nprd', 'prod'],
-      github: {
-        organization: 'MyOrganization',
-        repository: 'myproject-infrastructure',
-      },
-    },
-  ],
-  trustedManagementAccountId: '123456789012',
-});
-```
-
-### Organizations Construct
-
-AWS Organizations setup with OUs and accounts:
-
-```typescript
-import { OrganizationConstruct } from '@codeiqlabs/aws-cdk/constructs';
-
-const organizations = new OrganizationConstruct(this, 'Organizations', {
-  naming: this.naming,
-  mode: 'create', // or 'adopt'
-  rootId: 'r-1234567890',
-  organizationalUnits: [
-    {
-      name: 'MyOrganization',
-      accounts: [
-        { name: 'Management', email: 'aws-mgmt@myorganization.com' },
-        { name: 'NonProd', email: 'aws-np@myorganization.com' },
-        { name: 'Prod', email: 'aws-prod@myorganization.com' },
-      ],
-    },
-    {
-      name: 'MyProject',
-      accounts: [
-        { name: 'NonProd', email: 'myproject-np@myorganization.com' },
-        { name: 'Prod', email: 'myproject-prod@myorganization.com' },
-      ],
-    },
-  ],
-  featureSet: 'ALL',
-});
-```
-
-### Identity Center Construct
-
-AWS SSO permission sets and assignments:
-
-```typescript
-import { IdentityCenterConstruct } from '@codeiqlabs/aws-cdk/constructs';
-
-const identityCenter = new IdentityCenterConstruct(this, 'IdentityCenter', {
-  naming: this.naming,
-  instanceArn: 'arn:aws:sso:::instance/ssoins-1234567890abcdef',
-  permissionSets: [
-    {
-      name: 'AdminAccess',
-      description: 'Full administrative access',
-      managedPolicies: ['arn:aws:iam::aws:policy/AdministratorAccess'],
-    },
-    {
-      name: 'ReadOnlyAccess',
-      description: 'Read-only access across all services',
-      managedPolicies: ['arn:aws:iam::aws:policy/ReadOnlyAccess'],
-    },
-  ],
-  assignments: [
-    {
-      principalType: 'GROUP',
-      principalName: 'Administrators',
-      permissionSetName: 'AdminAccess',
-      targetType: 'AWS_ACCOUNT',
-      targetId: '123456789012',
-    },
-  ],
-  accountIds: { Management: '123456789012' },
-  owner: 'Platform Team',
-  company: 'MyOrganization',
-});
-```
-
-### Standardized Tagging
-
-Automatic tagging with consistent patterns:
-
-```typescript
-import { applyStandardTags } from '@codeiqlabs/aws-cdk/common';
-
-// Apply to any CDK construct
-applyStandardTags(myConstruct, {
-  project: 'MyProject',
-  environment: 'nprd',
-  component: 'API',
-  owner: 'Platform Team',
-  company: 'MyOrganization',
-  extraTags: {
-    CostCenter: 'Engineering',
-  },
-});
-```
-
-## Architecture
-
-### Repository Structure
-
-```
-src/
-├── application/            # Application bootstrap utilities
-│   ├── cdk-application.ts # CdkApplication class for automatic manifest loading
-│   ├── stage-factory.ts   # Stage factory for creating stages
-│   └── types.ts           # Application-related types
-├── stacks/                # Stack classes
-│   ├── base/              # Base stack classes
-│   │   ├── management-base.ts  # ManagementBaseStack
-│   │   └── workload-base.ts    # WorkloadBaseStack
-│   └── management/        # Library-provided management stacks
-│       ├── organizations-stack.ts     # ManagementOrganizationsStack
-│       └── identity-center-stack.ts   # ManagementIdentityCenterStack
-├── constructs/            # Reusable CDK constructs
-│   ├── organizations/     # AWS Organizations constructs
-│   ├── identity-center/   # AWS Identity Center (SSO) constructs
-│   └── deployment-permissions/  # Cross-account roles & GitHub OIDC
-├── stages/                # Stage classes with declarative patterns
-│   ├── management-base-stage.ts           # ManagementBaseStage
-│   ├── workload-base-stage.ts             # WorkloadBaseStage
-│   ├── declarative-management-base-stage.ts  # DeclarativeManagementBaseStage
-│   └── declarative-types.ts               # Declarative pattern types
-├── common/                # Shared utilities
-│   ├── tagging/           # Tagging functions and utilities
-│   ├── ssm/               # SSM parameter utilities
-│   ├── outputs/           # CloudFormation output utilities
-│   └── aspects/           # CDK aspects
-└── index.ts               # Main entry point
-```
-
-### Library-Provided Stacks
-
-**Pre-built, reusable stack implementations** for common infrastructure patterns:
-
-- **ManagementOrganizationsStack** - Complete AWS Organizations setup with OUs and accounts
-- **ManagementIdentityCenterStack** - AWS Identity Center (SSO) with permission sets and assignments
-- **BaseStack + L2 Construct Pattern** - Each stack wraps a single high-level construct with minimal business logic
-
-**Benefits:**
-- Eliminates 60-70% of boilerplate code in consuming applications
-- Ensures consistent patterns across all management accounts
-- Centralized maintenance and improvements
-- Type-safe configuration with comprehensive validation
-
-### Declarative Stage Pattern
-
-**Automatic stack creation with dependency resolution:**
-
-- **DeclarativeManagementBaseStage** - Orchestrates stack creation based on registrations
-- **ManagementStackRegistration** - Type-safe stack registration interface
-- **Automatic Features** - Conditional creation, dependency injection, error handling
-
-**Benefits:**
-- Applications become pure orchestration layers
-- Automatic dependency resolution between stacks
-- Conditional stack creation based on manifest configuration
-- Comprehensive error handling and validation
-
-### Reusable Constructs
-
-**Standardized CDK constructs** providing consistent patterns:
-
-- **Organizations** - AWS Organizations, OUs, and accounts with SSM parameters
-- **Identity Center** - AWS SSO permission sets and assignments
-- **Deployment Permissions** - Cross-account roles and GitHub OIDC providers
-- **SSM Parameters** - Standardized parameter creation and management
-- **Outputs** - CloudFormation output utilities with naming conventions
-
-All constructs follow these principles:
-- Standardized naming and tagging patterns
-- Consistent SSM parameter and CloudFormation output creation
-- Type-safe configuration with validation
-- Reusable patterns for common AWS resources
-
-## Module Formats
-
-This package supports both ESM and CommonJS with automatic dual publishing:
-
-### ESM (Recommended)
-
-```typescript
-// Library-provided stacks
-import {
-  ManagementOrganizationsStack,
-  ManagementIdentityCenterStack
-} from '@codeiqlabs/aws-cdk/stacks';
-
-// Base stack classes
-import { ManagementBaseStack, WorkloadBaseStack } from '@codeiqlabs/aws-cdk/stacks';
-
-// Constructs
-import { DeploymentPermissionsConstruct } from '@codeiqlabs/aws-cdk/constructs';
-
-// Utilities
-import { applyStandardTags } from '@codeiqlabs/aws-cdk/common';
-
-// Stage classes
-import { DeclarativeManagementBaseStage } from '@codeiqlabs/aws-cdk/stages';
-```
-
-### CommonJS
-
-```javascript
-// Library-provided stacks
-const {
-  ManagementOrganizationsStack,
-  ManagementIdentityCenterStack
-} = require('@codeiqlabs/aws-cdk/stacks');
-
-// Base stack classes
-const { ManagementBaseStack, WorkloadBaseStack } = require('@codeiqlabs/aws-cdk/stacks');
-
-// Constructs
-const { DeploymentPermissionsConstruct } = require('@codeiqlabs/aws-cdk/constructs');
-
-// Utilities
-const { applyStandardTags } = require('@codeiqlabs/aws-cdk/common');
-```
-
-## Development
-
-### Prerequisites
-
-- Node.js 18+
-- npm 9+
-- TypeScript 5+
-- AWS CDK 2.123.0+
-
-### Setup
-
-```bash
-# Clone the repository
-git clone https://github.com/CodeIQLabs/codeiqlabs-aws-cdk.git
-cd codeiqlabs-aws-cdk
-
-# Install dependencies
-npm install
-
-# Build the package (dual ESM/CJS with tsup)
-npm run build
-
-# Run tests
-npm run test:all
-
-# Lint and format
-npm run lint
-npm run format
-```
-
-### Build Commands
-
-```bash
-# Clean build artifacts
-npm run clean
-
-# Build with tsup (ESM + CJS + types + source maps)
-npm run build:bundle
-
-# Full build pipeline (clean + bundle + lint)
-npm run build
-
-# Development watch mode
-npm run dev
-```
-
-## Testing
-
-```bash
-# Run all tests (CJS + ESM import tests)
-npm run test:all
-
-# Run individual test suites
-npm run test:load    # Configuration loading tests
-npm run test:esm     # ESM import tests
-```
-
-## Dependencies
-
-### Core Dependencies
-
-- **@codeiqlabs/aws-utils** - Core naming, validation, and configuration utilities
-- **@codeiqlabs/eslint-prettier-config** - Centralized code quality configuration
-
-### Peer Dependencies
-
-- **aws-cdk-lib** - AWS CDK library (v2.123.0+)
-- **constructs** - CDK constructs library
-
-## Integration with @codeiqlabs/eslint-prettier-config
-
-This package uses the centralized ESLint and Prettier configuration:
-
-```json
-{
-  "devDependencies": {
-    "@codeiqlabs/eslint-prettier-config": "^1.5.0"
+// src/application/registry/management-stage-registry.ts
+export class ManagementStageRegistry {
+  private stages = new Map<string, ManagementStageConstructor>();
+
+  constructor() {
+    // Register default management stages
+    this.registerStage('organizations', OrganizationsStage);
+    this.registerStage('identityCenter', IdentityCenterStage);
+    this.registerStage('domainAuthority', DomainAuthorityStage);
+  }
+
+  registerStage(component: string, stageClass: ManagementStageConstructor): void {
+    this.stages.set(component, stageClass);
+  }
+
+  getStage(component: string): ManagementStageConstructor | undefined {
+    return this.stages.get(component);
+  }
+}
+
+// src/application/registry/workload-stage-registry.ts
+export class WorkloadStageRegistry {
+  private stages = new Map<string, WorkloadStageConstructor>();
+
+  constructor() {
+    // Register default workload stages
+    this.registerStage('static-hosting', StaticHostingStage);
+  }
+
+  registerStage(pattern: string, stageClass: WorkloadStageConstructor): void {
+    this.stages.set(pattern, stageClass);
+  }
+
+  getStage(pattern: string): WorkloadStageConstructor | undefined {
+    return this.stages.get(pattern);
   }
 }
 ```
 
-The v1.5.0 release includes:
+## Example Manifest Structures
 
-- **Modular architecture** with proper separation of concerns
-- **ESLint 9.x compatibility** with updated React plugin versions
-- **Zero dependency conflicts** with the new bundler approach
-- **Enhanced TypeScript rules** and better error handling
+### Management Account Pattern
 
-## Release Process
+```yaml
+type: management
+project: CodeIQLabs
+organizations:
+  enabled: true
+  organizationalUnits:
+    - name: Production
+    - name: NonProduction
+identityCenter:
+  enabled: true
+  permissionSets:
+    - name: AdminAccess
+    - name: ReadOnlyAccess
+domain:
+  name: codeiqlabs.com
+  hostedZoneId: Z123456789
+```
 
-This package uses automated release management with changesets:
+**Creates**: `OrganizationsStage` + `IdentityCenterStage` + `DomainAuthorityStage`
 
-1. **Make changes** and create a changeset: `npm run changeset`
-2. **Commit changes** with descriptive messages
-3. **Create Pull Request** - CI validates builds and tests
-4. **Merge PR** - Automated release workflow publishes to GitHub Packages
+### Static Hosting Pattern
 
-### Versioning
+```yaml
+type: workload
+project: MyApp
+domain:
+  name: myapp.example.com
+staticHosting:
+  spa: true
+  errorDocument: index.html
+environments:
+  production:
+    account: '123456789012'
+    region: us-east-1
+```
 
-- **patch**: Bug fixes, documentation updates, internal refactoring
-- **minor**: New constructs, new features, additive changes
-- **major**: Breaking changes, removed constructs, changed APIs
-
-## License
-
-MIT - See [LICENSE](LICENSE) file for details.
+**Creates**: `StaticHostingStage` for production environment
 
 ---
 
 **Part of the CodeIQLabs infrastructure ecosystem** - Accelerating AWS CDK development with
 reusable, standardized constructs and patterns.
+
+MIT - See [LICENSE](LICENSE) file for details.
