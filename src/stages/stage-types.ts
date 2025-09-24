@@ -55,7 +55,7 @@ export interface EnhancedWorkloadStageProps extends cdk.StageProps {
 export type ManagementStackConstructor<T extends cdk.Stack> = new (
   scope: Construct,
   id: string,
-  props: any,
+  props: cdk.StackProps,
 ) => T;
 
 /**
@@ -64,7 +64,7 @@ export type ManagementStackConstructor<T extends cdk.Stack> = new (
 export type WorkloadStackConstructor<T extends cdk.Stack> = new (
   scope: Construct,
   id: string,
-  props: any,
+  props: cdk.StackProps,
 ) => T;
 
 /**
@@ -74,7 +74,7 @@ export interface StackCreationOptions {
   /**
    * Additional properties to pass to the stack constructor
    */
-  additionalProps?: Record<string, any>;
+  additionalProps?: Record<string, unknown>;
 
   /**
    * Override the default stack naming

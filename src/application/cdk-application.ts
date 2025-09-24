@@ -4,20 +4,20 @@
  * This module provides the CdkApplication class that eliminates boilerplate
  * code in CDK application entry points by standardizing manifest loading,
  * validation, and stage creation patterns.
+ *
+ * Note: Most users should use createAutoApp() instead of using this class directly.
  */
 
 import * as cdk from 'aws-cdk-lib';
 import { initializeApp } from '@codeiqlabs/aws-utils';
 import type { ManagementAppConfig, WorkloadAppConfig } from '@codeiqlabs/aws-utils';
-import { applyGlobalAspects } from '../common/aspects';
-import { StageFactory } from './stage-factory';
+
 import { ApplicationInitError } from './types';
 import type {
   CdkApplicationOptions,
   ManifestType,
   ApplicationInitResult,
   StageConstructor,
-  StageCreationOptions,
   ManagementStageOptions,
   WorkloadStageOptions,
 } from './types';
@@ -25,26 +25,20 @@ import type {
 /**
  * Standardized CDK Application with automatic manifest loading and validation
  *
- * This class eliminates the repetitive bootstrap code found in bin/app.ts files
- * across CodeIQLabs infrastructure repositories by providing:
+ * This class provides the foundation for auto-detection by handling:
  * - Automatic manifest loading with type detection
  * - Type validation and error handling
- * - Global aspects application
- * - Standardized stage creation utilities
+ * - Stage creation utilities for auto-detection
  *
  * @example
  * ```typescript
- * // Simple usage
- * const app = new CdkApplication({ expectedType: 'management' });
- * app.createStage(ManagementStage);
- * app.synth();
+ * // Recommended: Use auto-detection instead
+ * import { createAutoApp } from '@codeiqlabs/aws-cdk';
+ * createAutoApp().then(app => app.synth());
  *
- * // Advanced usage with options
- * const app = new CdkApplication({
- *   expectedType: 'workload',
- *   manifestPath: 'config/custom-manifest.yaml'
- * });
- * app.createWorkloadStage('np', WorkloadStage);
+ * // Advanced: Direct usage (rarely needed)
+ * const app = await CdkApplication.create();
+ * app.createManagementStage(OrganizationsStage);
  * app.synth();
  * ```
  */
@@ -77,10 +71,7 @@ export class CdkApplication extends cdk.App {
     this.manifestType = manifestType;
     this.manifestPath = manifestPath;
 
-    // Apply global aspects if enabled (default: true)
-    if (options.autoApplyAspects !== false) {
-      this.applyGlobalAspects();
-    }
+    // Note: Global aspects functionality removed - implement directly in CDK app if needed
   }
 
   /**
@@ -94,20 +85,6 @@ export class CdkApplication extends cdk.App {
     const initResult = await CdkApplication.initializeManifest(options);
 
     return new CdkApplication(initResult.config, initResult.type, initResult.filePath, options);
-  }
-
-  /**
-   * Create a stage using the stage factory with automatic configuration
-   *
-   * @param stageClass - The stage constructor class
-   * @param options - Stage creation options
-   * @returns The created stage instance
-   */
-  createStage<T extends cdk.Stage>(
-    stageClass: StageConstructor<T>,
-    options: StageCreationOptions = {},
-  ): T {
-    return StageFactory.createStage(this, stageClass, this.config, options);
   }
 
   /**
@@ -129,12 +106,16 @@ export class CdkApplication extends cdk.App {
       );
     }
 
-    return StageFactory.createManagementStage(
-      this,
-      stageClass,
-      this.config as ManagementAppConfig,
-      options,
-    );
+    // Simple direct management stage creation
+    const managementConfig = (this.config as ManagementAppConfig).management;
+    const stageName = options.stageName || `${this.config.project}-${managementConfig.environment}`;
+    return new stageClass(this, stageName, {
+      manifest: this.config as ManagementAppConfig,
+      env: options.env || {
+        account: managementConfig.accountId,
+        region: managementConfig.region,
+      },
+    });
   }
 
   /**
@@ -158,13 +139,28 @@ export class CdkApplication extends cdk.App {
       );
     }
 
-    return StageFactory.createWorkloadStage(
-      this,
-      stageClass,
-      this.config as WorkloadAppConfig,
-      envName,
-      options,
-    );
+    // Simple direct workload stage creation
+    const stageName = options.stageName || `${this.config.project}-${envName}`;
+    const workloadConfig = this.config as WorkloadAppConfig;
+    const envConfig = workloadConfig.environments[envName];
+
+    if (!envConfig) {
+      throw new ApplicationInitError(
+        `Environment '${envName}' not found in workload manifest`,
+        undefined,
+        this.manifestPath,
+      );
+    }
+
+    return new stageClass(this, stageName, {
+      manifest: workloadConfig,
+      environment: envName,
+      config: envConfig.config,
+      env: options.env || {
+        account: envConfig.accountId,
+        region: envConfig.region || workloadConfig.management.region,
+      },
+    });
   }
 
   /**
@@ -213,15 +209,5 @@ export class CdkApplication extends cdk.App {
         options.manifestPath,
       );
     }
-  }
-
-  /**
-   * Apply global aspects based on the manifest configuration
-   */
-  private applyGlobalAspects(): void {
-    applyGlobalAspects(this, {
-      App: this.config.project,
-      Company: this.config.company,
-    });
   }
 }

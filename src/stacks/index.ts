@@ -14,7 +14,7 @@
  * Available stack types:
  * - Base stacks: Foundation classes for extending
  * - Management stacks: Pre-built management account infrastructure
- * - Workload stacks: Pre-built workload account infrastructure (future)
+ * - Workload stacks: Pre-built workload account infrastructure
  */
 
 // Base stack classes
@@ -22,3 +22,6 @@ export * from './base';
 
 // Management account stack implementations
 export * from './management';
+
+// Workload account stack implementations
+export * from './workload';

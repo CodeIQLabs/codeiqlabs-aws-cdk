@@ -1,21 +1,21 @@
 /**
- * CDK Construct Classes for CodeIQLabs projects
+ * Construct layer exports
  *
- * This module provides reusable CDK constructs that eliminate repetitive code
- * and ensure consistent patterns across all CodeIQLabs infrastructure projects.
+ * Layer 4: AWS Service Constructs (Reusable Components)
  *
- * All constructs follow these principles:
- * - Standardized naming and tagging patterns
- * - Consistent SSM parameter and CloudFormation output creation
- * - Type-safe configuration with validation
- * - Reusable patterns for common AWS resources
+ * Individual AWS service constructs with built-in naming, tagging, and best practices.
  */
 
-// AWS Organizations constructs
+// Individual AWS Service Constructs
+export * from './s3';
+export * from './cloudfront';
+export * from './route53';
+export * from './acm';
 export * from './organizations';
-
-// AWS Identity Center (SSO) constructs
 export * from './identity-center';
 
-// Deployment permissions constructs
-export * from './deployment-permissions';
+// Legacy static hosting (will be refactored to use individual service constructs)
+export * from './static-hosting';
+
+// Common types
+export * from './types';

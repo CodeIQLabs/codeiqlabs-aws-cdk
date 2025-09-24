@@ -26,9 +26,10 @@
  */
 
 import * as cdk from 'aws-cdk-lib';
+import { Tags } from 'aws-cdk-lib';
 import type { Construct } from 'constructs';
 import { ResourceNaming } from '@codeiqlabs/aws-utils';
-import { applyStandardTagsWithNaming } from '../../common/tagging/cdk';
+import { generateStandardTags } from '@codeiqlabs/aws-utils';
 
 /**
  * Configuration for ManagementBaseStack
@@ -138,10 +139,14 @@ export abstract class ManagementBaseStack extends cdk.Stack {
     this.managementConfig = managementConfig;
 
     // Apply standard tags to all resources in this stack
-    applyStandardTagsWithNaming(this, naming, {
+    const standardTags = generateStandardTags(naming.getConfig(), {
       component,
       owner: managementConfig.owner,
       company: managementConfig.company,
+    });
+
+    Object.entries(standardTags).forEach(([key, value]) => {
+      Tags.of(this).add(key, value);
     });
   }
 

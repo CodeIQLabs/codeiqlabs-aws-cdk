@@ -12,4 +12,5 @@ assert.ok(
 );
 assert.ok(typeof WorkloadBaseStack === 'function', 'WorkloadBaseStack class should be available');
 
+// eslint-disable-next-line no-console
 console.log('✅ AWS CDK config smoke test passed');
