@@ -33,22 +33,6 @@ export class OrchestrationError extends Error {
 }
 
 /**
- * Validate that the application has the expected manifest type
- *
- * @param app - CDK application to validate
- * @param expectedType - Expected manifest type
- * @throws OrchestrationError if validation fails
- */
-export function validateManifestType(
-  app: CdkApplication,
-  expectedType: 'management' | 'workload',
-): void {
-  if (app.manifestType !== expectedType) {
-    throw new OrchestrationError(`Expected ${expectedType} manifest but got ${app.manifestType}`);
-  }
-}
-
-/**
  * Create a stage name for logging and error reporting
  *
  * @param component - Component or pattern name

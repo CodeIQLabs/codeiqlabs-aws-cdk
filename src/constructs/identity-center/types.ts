@@ -6,6 +6,7 @@ import type {
   ResourceNaming,
   PermissionSetConfig,
   SSOAssignmentConfig,
+  UserConfig,
 } from '@codeiqlabs/aws-utils';
 
 /**
@@ -16,6 +17,10 @@ export interface IdentityCenterConstructProps {
   naming: ResourceNaming;
   /** AWS Identity Center instance ARN */
   instanceArn: string;
+  /** Identity Store ID (required for user creation) */
+  identityStoreId?: string;
+  /** Users to create (optional) */
+  users?: UserConfig[];
   /** Permission sets to create */
   permissionSets: PermissionSetConfig[];
   /** Assignments to create (optional) */
@@ -64,6 +69,8 @@ export interface AssignmentConstructProps {
   config: SSOAssignmentConfig;
   /** Account IDs map for target resolution */
   accountIds: Record<string, string>;
+  /** User IDs map for principal resolution (optional) */
+  userIds?: Record<string, string>;
   /** Permission set ARN to assign */
   permissionSetArn: string;
 }
@@ -90,4 +97,6 @@ export interface IdentityCenterResult {
   assignments: any[]; // CfnAssignment[] from aws-cdk-lib/aws-sso
   /** The instance ARN used */
   instanceArn: string;
+  /** The identity store ID used (if provided) */
+  identityStoreId?: string;
 }

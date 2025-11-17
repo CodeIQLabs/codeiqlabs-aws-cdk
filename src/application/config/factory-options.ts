@@ -6,19 +6,11 @@
  */
 
 import type * as cdk from 'aws-cdk-lib';
-import type { ManifestType } from '../types';
 
 /**
  * Options for factory functions
  */
 export interface FactoryOptions {
-  /**
-   * Expected manifest type for validation
-   * If provided, the application will validate that the loaded manifest matches this type
-   * If not provided, the type will be auto-detected from the manifest structure
-   */
-  expectedType?: ManifestType;
-
   /**
    * Path to the manifest file
    * Defaults to 'src/manifest.yaml'

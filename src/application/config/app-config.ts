@@ -6,18 +6,12 @@
  * all factory functions and orchestrators.
  */
 
-import type { ManifestType } from '../types';
 import type { FactoryOptions } from './factory-options';
 
 /**
  * Validated application configuration
  */
 export interface AppConfig {
-  /**
-   * The detected or specified manifest type
-   */
-  manifestType: ManifestType;
-
   /**
    * Path to the loaded manifest file
    */
@@ -49,13 +43,6 @@ export class ConfigValidationError extends Error {
  * @throws ConfigValidationError if validation fails
  */
 export function validateFactoryOptions(options: FactoryOptions): void {
-  if (options.expectedType && !['management', 'workload'].includes(options.expectedType)) {
-    throw new ConfigValidationError(
-      `Invalid expectedType: ${options.expectedType}. Must be 'management' or 'workload'`,
-      'expectedType',
-    );
-  }
-
   if (options.manifestPath && typeof options.manifestPath !== 'string') {
     throw new ConfigValidationError('manifestPath must be a string', 'manifestPath');
   }
@@ -69,14 +56,12 @@ export function validateFactoryOptions(options: FactoryOptions): void {
  * Create application configuration from factory options
  *
  * @param options - Factory options
- * @param manifestType - Detected manifest type
  * @returns Validated application configuration
  */
-export function createAppConfig(options: FactoryOptions, manifestType: ManifestType): AppConfig {
+export function createAppConfig(options: FactoryOptions): AppConfig {
   validateFactoryOptions(options);
 
   return {
-    manifestType,
     manifestPath: options.manifestPath || 'src/manifest.yaml',
     autoApplyAspects: options.autoApplyAspects ?? true,
   };

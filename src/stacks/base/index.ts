@@ -1,18 +1,16 @@
 /**
  * Base Stack Classes for CodeIQLabs projects
  *
- * This module provides the foundational base stack classes that serve as
- * building blocks for all other stack implementations.
+ * This module provides the foundational base stack class that serves as
+ * the building block for all stack implementations.
  *
- * Base stacks provide:
+ * The unified BaseStack provides:
  * - Standardized initialization and configuration
  * - Automatic naming and tagging
  * - Environment validation
  * - Common utilities and patterns
+ * - Support for both single-account and multi-environment deployments
  */
 
-// Management account base stack
-export * from './management-base';
-
-// Workload account base stack
-export * from './workload-base';
+// Unified base stack for all deployment patterns
+export * from './base-stack';

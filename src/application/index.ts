@@ -1,51 +1,36 @@
 /**
- * CDK Application Bootstrap Utilities - Modular Architecture
+ * CDK Application Bootstrap Utilities - Unified Component-Based Architecture
  *
  * This module provides standardized CDK application bootstrap utilities with
- * a modular architecture that separates concerns across focused modules.
+ * a unified component-based architecture.
  *
  * Key exports:
- * - Application Factories: Main entry points for creating CDK applications
- * - Stage Registries: Type-safe stage registration and lookup
- * - Stage Orchestration: Coordination between detection and stage creation
+ * - Application Factory: Single entry point for creating CDK applications
+ * - Component Orchestration: Component-based stack creation
  * - Configuration Management: Centralized configuration and validation
  * - Core Application: CDK application class with manifest loading
  *
  * @example
  * ```typescript
- * // Main entry points (recommended)
- * import { createAutoApp } from '@codeiqlabs/aws-cdk';
- * createAutoApp().then(app => app.synth());
- *
- * // Direct module access (advanced)
- * import { createAutoApp } from '@codeiqlabs/aws-cdk/application/factories';
- * import { ManagementStageRegistry } from '@codeiqlabs/aws-cdk/application/registry';
+ * import { createApp } from '@codeiqlabs/aws-cdk';
+ * createApp().then(app => app.synth());
  * ```
  */
 
 // Main application class
 export { CdkApplication } from './cdk-application';
 
-// Application factories (main entry points)
-export { createAutoApp, createManagementApp, createWorkloadApp } from './factories';
+// Unified application factory
+export { createApp } from './factories';
 
-// Stage registries
-export { ManagementStageRegistry, WorkloadStageRegistry } from './registry';
-export type {
-  ManagementStageConstructor,
-  WorkloadStageConstructor,
-  ManagementStageRegistryInterface,
-  WorkloadStageRegistryInterface,
-} from './registry';
-
-// Stage orchestration
-export { ManagementOrchestrator, WorkloadOrchestrator } from './orchestration';
+// Component-based orchestration
+export { ComponentOrchestrator } from './orchestration';
 export type { BaseOrchestrator } from './orchestration';
 export { OrchestrationError } from './orchestration';
 
 // Configuration management
 export type { FactoryOptions, AppConfig } from './config';
-export { ConfigValidationError, FactoryError } from './config';
+export { ConfigValidationError } from './config';
 
 // Core type definitions
 export type {
@@ -57,13 +42,9 @@ export type {
   // Stage creation types
   StageConstructor,
   StageCreationOptions,
-  ManagementStageOptions,
-  WorkloadStageOptions,
 
   // Stage props interfaces
   BaseStageProps,
-  ManagementStageProps,
-  WorkloadStageProps,
 } from './types';
 
 // Re-export the error class

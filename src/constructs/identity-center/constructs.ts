@@ -23,6 +23,10 @@ import type {
  *
  * This construct creates permission sets, assignments, and associated
  * SSM parameters and CloudFormation outputs with consistent naming.
+ *
+ * Note: AWS CloudFormation does not support creating Identity Center users.
+ * Users must be created manually or through external identity providers.
+ * This construct supports referencing users by principalId or principalKey.
  */
 export class IdentityCenterConstruct extends Construct {
   /** Map of permission set names to their results */
@@ -34,10 +38,33 @@ export class IdentityCenterConstruct extends Construct {
   /** The instance ARN used */
   public readonly instanceArn: string;
 
+  /** The identity store ID used (if provided) */
+  public readonly identityStoreId?: string;
+
+  /** Map of user keys to user IDs (for principalKey resolution) */
+  private readonly userIds: Record<string, string> = {};
+
   constructor(scope: Construct, id: string, props: IdentityCenterConstructProps) {
     super(scope, id);
 
     this.instanceArn = props.instanceArn;
+    this.identityStoreId = props.identityStoreId;
+
+    // Build user IDs map from provided users configuration
+    // Note: Users cannot be created via CloudFormation, but we can map keys to IDs
+    if (props.users) {
+      for (const userConfig of props.users) {
+        if (userConfig.userId) {
+          this.userIds[userConfig.key] = userConfig.userId;
+        } else {
+          throw new Error(
+            `User '${userConfig.key}' must have a userId. ` +
+              `AWS CloudFormation does not support creating Identity Center users. ` +
+              `Please create the user manually and provide the userId.`,
+          );
+        }
+      }
+    }
 
     // Create permission sets
     for (const psConfig of props.permissionSets) {
@@ -64,7 +91,9 @@ export class IdentityCenterConstruct extends Construct {
 
     // Create assignments if provided
     if (props.assignments && props.accountIds) {
-      for (const [index, assignmentConfig] of props.assignments.entries()) {
+      let assignmentCounter = 0;
+
+      for (const assignmentConfig of props.assignments) {
         const permissionSetResult = this.permissionSets[assignmentConfig.permissionSetName];
         if (!permissionSetResult) {
           throw new Error(
@@ -72,15 +101,37 @@ export class IdentityCenterConstruct extends Construct {
           );
         }
 
-        const assignment = new AssignmentConstruct(this, `Assignment${index}`, {
-          naming: props.naming,
-          instanceArn: props.instanceArn,
-          config: assignmentConfig,
-          accountIds: props.accountIds,
-          permissionSetArn: permissionSetResult.arn,
-        });
+        // Expand targetKeys into multiple assignments if provided
+        const targetKeys = assignmentConfig.targetKeys
+          ? assignmentConfig.targetKeys
+          : assignmentConfig.targetKey
+            ? [assignmentConfig.targetKey]
+            : [];
 
-        this.assignments.push(assignment.assignment);
+        if (targetKeys.length === 0) {
+          throw new Error('Either targetKey or targetKeys must be provided for assignment');
+        }
+
+        // Create an assignment for each target account
+        for (const targetKey of targetKeys) {
+          const expandedConfig = {
+            ...assignmentConfig,
+            targetKey,
+            targetKeys: undefined, // Remove targetKeys from expanded config
+          };
+
+          const assignment = new AssignmentConstruct(this, `Assignment${assignmentCounter}`, {
+            naming: props.naming,
+            instanceArn: props.instanceArn,
+            config: expandedConfig,
+            accountIds: props.accountIds,
+            userIds: this.userIds,
+            permissionSetArn: permissionSetResult.arn,
+          });
+
+          this.assignments.push(assignment.assignment);
+          assignmentCounter++;
+        }
       }
     }
 
@@ -104,6 +155,7 @@ export class IdentityCenterConstruct extends Construct {
       permissionSets: this.permissionSets,
       assignments: this.assignments,
       instanceArn: this.instanceArn,
+      identityStoreId: this.identityStoreId,
     };
   }
 }
@@ -166,19 +218,38 @@ export class AssignmentConstruct extends Construct {
   constructor(scope: Construct, id: string, props: AssignmentConstructProps) {
     super(scope, id);
 
-    const { instanceArn, config, accountIds, permissionSetArn } = props;
+    const { instanceArn, config, accountIds, userIds, permissionSetArn } = props;
 
     // Resolve target account ID
+    if (!config.targetKey) {
+      throw new Error(
+        'targetKey must be provided for assignment (targetKeys should be expanded before this point)',
+      );
+    }
+
     const targetAccountId = accountIds[config.targetKey] ?? config.targetKey;
     if (!targetAccountId) {
       throw new Error(`Cannot resolve account ID for target key: ${config.targetKey}`);
     }
 
-    // Validate principal ID is provided
-    if (!config.principalId) {
+    // Resolve principal ID (either direct or via principalKey)
+    let principalId: string;
+    if (config.principalId) {
+      // Direct principal ID provided
+      principalId = config.principalId;
+    } else if (config.principalKey && userIds) {
+      // Resolve principal ID from user key
+      const resolvedUserId = userIds[config.principalKey];
+      if (!resolvedUserId) {
+        throw new Error(
+          `Cannot resolve user ID for principal key: ${config.principalKey}. ` +
+            `Available user keys: ${Object.keys(userIds).join(', ')}`,
+        );
+      }
+      principalId = resolvedUserId;
+    } else {
       throw new Error(
-        `Principal ID is required for ${config.principalType} assignment. ` +
-          `Please provide the principalId directly from AWS Identity Center.`,
+        `Either principalId or principalKey must be provided for ${config.principalType} assignment.`,
       );
     }
 
@@ -186,7 +257,7 @@ export class AssignmentConstruct extends Construct {
     this.assignment = new sso.CfnAssignment(this, 'Assignment', {
       instanceArn,
       principalType: config.principalType,
-      principalId: config.principalId,
+      principalId,
       permissionSetArn,
       targetType: config.targetType,
       targetId: targetAccountId,

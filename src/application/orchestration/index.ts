@@ -1,19 +1,12 @@
 /**
- * Stage Orchestration Module Exports
+ * Component Orchestration Module Exports
  *
- * This module provides centralized exports for all stage orchestration functionality,
- * including base orchestrator patterns and specific orchestrators for management
- * and workload applications.
+ * This module provides centralized exports for component-based orchestration.
  */
 
 // Base orchestrator patterns
 export type { BaseOrchestrator } from './base-orchestrator';
-export {
-  OrchestrationError,
-  validateManifestType,
-  createStageIdentifier,
-} from './base-orchestrator';
+export { OrchestrationError, createStageIdentifier } from './base-orchestrator';
 
-// Orchestrator implementations
-export { ManagementOrchestrator } from './management-orchestrator';
-export { WorkloadOrchestrator } from './workload-orchestrator';
+// Unified component-based orchestrator
+export { ComponentOrchestrator } from './component-orchestrator';

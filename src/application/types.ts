@@ -7,29 +7,17 @@
 
 import type * as cdk from 'aws-cdk-lib';
 import type { Construct } from 'constructs';
-import type { ManagementAppConfig, WorkloadAppConfig } from '@codeiqlabs/aws-utils';
+import type { UnifiedAppConfig } from '@codeiqlabs/aws-utils';
 
 /**
- * Supported manifest types
+ * Unified manifest configuration (replaces legacy ManifestType)
  */
-export type ManifestType = 'management' | 'workload';
-
-/**
- * Union type for all supported manifest configurations
- */
-export type ManifestConfig = ManagementAppConfig | WorkloadAppConfig;
+export type ManifestConfig = UnifiedAppConfig;
 
 /**
  * Options for CdkApplication initialization
  */
 export interface CdkApplicationOptions {
-  /**
-   * Expected manifest type for validation
-   * If provided, the application will validate that the loaded manifest matches this type
-   * If not provided, the type will be auto-detected from the manifest structure
-   */
-  expectedType?: ManifestType;
-
   /**
    * Path to the manifest file
    * Defaults to 'src/manifest.yaml'
@@ -69,32 +57,12 @@ export interface StageCreationOptions {
 }
 
 /**
- * Options for management stage creation
- */
-export interface ManagementStageOptions extends StageCreationOptions {
-  /**
-   * Management-specific configuration overrides
-   */
-  managementOverrides?: Partial<ManagementAppConfig>;
-}
-
-/**
- * Options for workload stage creation
- */
-export interface WorkloadStageOptions extends StageCreationOptions {
-  /**
-   * Workload-specific configuration overrides
-   */
-  workloadOverrides?: Partial<WorkloadAppConfig>;
-}
-
-/**
  * Constructor type for CDK stages
  */
 export type StageConstructor<T extends cdk.Stage> = new (
   scope: Construct,
   id: string,
-  props: cdk.StageProps,
+  props: any,
 ) => T;
 
 /**
@@ -108,33 +76,13 @@ export interface BaseStageProps extends cdk.StageProps {
 }
 
 /**
- * Management stage props interface
- */
-export interface ManagementStageProps extends BaseStageProps {
-  cfg: ManagementAppConfig;
-}
-
-/**
- * Workload stage props interface
- */
-export interface WorkloadStageProps extends BaseStageProps {
-  cfg: WorkloadAppConfig;
-  envName: string;
-}
-
-/**
  * Application initialization result
  */
 export interface ApplicationInitResult {
   /**
    * The loaded manifest configuration
    */
-  config: ManagementAppConfig | WorkloadAppConfig;
-
-  /**
-   * The detected manifest type
-   */
-  type: ManifestType;
+  config: UnifiedAppConfig;
 
   /**
    * The file path that was loaded

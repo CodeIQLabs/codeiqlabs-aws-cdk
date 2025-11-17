@@ -1,151 +1,134 @@
 /**
- * Main Factory Functions
+ * Unified Application Factory
  *
- * This module implements the main factory functions for creating CDK applications
- * with automatic pattern detection and stage orchestration. These functions provide
- * the primary entry points for the modular architecture.
+ * This module provides a single unified factory function for creating CDK applications
+ * with component-based orchestration. This replaces the previous manifestType-based
+ * approach (createManagementApp/createWorkloadApp) with a simpler, more flexible design.
+ *
+ * **Breaking Change:**
+ * - No more manifestType field in manifests
+ * - Single createApp() function replaces createManagementApp() and createWorkloadApp()
+ * - Component-based orchestration replaces manifestType-based orchestration
+ * - Any component can be deployed to any account
  */
 
 import type { CdkApplication } from '../cdk-application';
 import type { FactoryOptions } from '../config/factory-options';
-import { ManagementOrchestrator } from '../orchestration/management-orchestrator';
-import { WorkloadOrchestrator } from '../orchestration/workload-orchestrator';
-import {
-  createConfiguredApplication,
-  validateApplicationType,
-  FactoryError,
-} from './factory-utils';
+import { ComponentOrchestrator } from '../orchestration/component-orchestrator';
+import { createConfiguredApplication, FactoryError } from './factory-utils';
 
 /**
- * Create a CDK application with automatic pattern detection
+ * Create a CDK application with component-based orchestration
  *
  * This function automatically:
  * 1. Loads and validates the manifest
- * 2. Detects the infrastructure pattern (management vs workload)
- * 3. Creates appropriate stages based on the detected pattern
+ * 2. Detects which components are enabled
+ * 3. Creates appropriate stacks based on enabled components
  * 4. Returns a fully configured CDK application ready for synthesis
+ *
+ * **What Gets Deployed:**
+ * - Single-account components (organization, identityCenter, domains) → deployment.accountId
+ * - Multi-environment components (staticHosting, networking) → environments[*].accountId
+ *
+ * **Deployment Options:**
+ * - `cdk deploy --all` - Deploy all enabled component stacks
+ * - `cdk deploy <StackName>` - Deploy individual stack
+ * - `cdk list` - See all stacks that will be created
  *
  * @param options - Optional configuration
  * @returns Promise resolving to the configured CdkApplication
  *
- * @example
+ * @example Single-account deployment (management infrastructure)
  * ```typescript
- * // Simple one-liner for any infrastructure pattern
- * import { createAutoApp } from '@codeiqlabs/aws-cdk/application/factories';
+ * // manifest.yaml:
+ * // deployment:
+ * //   accountId: "682475224767"
+ * //   region: us-east-1
+ * // organization:
+ * //   enabled: true
+ * // identityCenter:
+ * //   enabled: true
+ * // domains:
+ * //   enabled: true
  *
- * createAutoApp().then(app => app.synth());
+ * import { createApp } from '@codeiqlabs/aws-cdk';
+ *
+ * createApp().then(app => app.synth());
+ *
+ * // Creates 3 stacks in account 682475224767:
+ * // - CodeIQLabs-Management-Organizations-Stack
+ * // - CodeIQLabs-Management-Identity-Center-Stack
+ * // - CodeIQLabs-Management-Domain-Delegation-Stack
+ * ```
+ *
+ * @example Multi-environment deployment (workload infrastructure)
+ * ```typescript
+ * // manifest.yaml:
+ * // deployment:
+ * //   accountId: "682475224767"
+ * //   region: us-east-1
+ * // environments:
+ * //   nprd:
+ * //     accountId: "466279485605"
+ * //     region: us-east-1
+ * //   prod:
+ * //     accountId: "719640820326"
+ * //     region: us-east-1
+ * // staticHosting:
+ * //   enabled: true
+ *
+ * import { createApp } from '@codeiqlabs/aws-cdk';
+ *
+ * createApp().then(app => app.synth());
+ *
+ * // Creates 2 stacks:
+ * // - CodeIQLabs-StaticHosting-nprd-Stack in account 466279485605
+ * // - CodeIQLabs-StaticHosting-prod-Stack in account 719640820326
+ * ```
+ *
+ * @example Mixed deployment (management + workload in same manifest)
+ * ```typescript
+ * // manifest.yaml:
+ * // deployment:
+ * //   accountId: "682475224767"
+ * //   region: us-east-1
+ * // environments:
+ * //   nprd:
+ * //     accountId: "466279485605"
+ * //   prod:
+ * //     accountId: "719640820326"
+ * // organization:
+ * //   enabled: true
+ * // domains:
+ * //   enabled: true
+ * // staticHosting:
+ * //   enabled: true
+ *
+ * import { createApp } from '@codeiqlabs/aws-cdk';
+ *
+ * createApp().then(app => app.synth());
+ *
+ * // Creates 4 stacks total:
+ * // - Organizations stack in 682475224767
+ * // - Domains stack in 682475224767
+ * // - StaticHosting-nprd stack in 466279485605
+ * // - StaticHosting-prod stack in 719640820326
  * ```
  */
-export async function createAutoApp(options: FactoryOptions = {}): Promise<CdkApplication> {
+export async function createApp(options: FactoryOptions = {}): Promise<CdkApplication> {
   try {
-    // Create CDK application with auto-detection
+    // Create CDK application (no expectedType - we don't validate manifestType anymore)
     const app = await createConfiguredApplication(options);
 
-    // Auto-create stages based on detected manifest type
-    switch (app.manifestType) {
-      case 'management': {
-        const managementOrchestrator = new ManagementOrchestrator();
-        managementOrchestrator.createStages(app);
-        break;
-      }
-      case 'workload': {
-        const workloadOrchestrator = new WorkloadOrchestrator();
-        workloadOrchestrator.createStages(app);
-        break;
-      }
-      default:
-        throw new FactoryError(`Unsupported manifest type: ${app.manifestType}`, 'createAutoApp');
-    }
+    // Create stacks based on enabled components
+    const orchestrator = new ComponentOrchestrator();
+    orchestrator.createStages(app);
 
     return app;
   } catch (error) {
     throw new FactoryError(
-      'Failed to create auto-detected application',
-      'createAutoApp',
-      error instanceof Error ? error : new Error(String(error)),
-    );
-  }
-}
-
-/**
- * Create a management application with auto-detection
- *
- * Specialized factory for management account infrastructure.
- * Validates that the manifest is a management type and creates
- * appropriate management stages automatically.
- *
- * @param options - Optional configuration
- * @returns Promise resolving to the configured management application
- *
- * @example
- * ```typescript
- * // For management accounts
- * import { createManagementApp } from '@codeiqlabs/aws-cdk/application/factories';
- *
- * createManagementApp().then(app => app.synth());
- * ```
- */
-export async function createManagementApp(options: FactoryOptions = {}): Promise<CdkApplication> {
-  try {
-    const app = await createConfiguredApplication({
-      ...options,
-      expectedType: 'management', // Enforce management type
-    });
-
-    // Validate manifest type
-    validateApplicationType(app, 'management', 'createManagementApp');
-
-    // Create management stages based on detected components
-    const managementOrchestrator = new ManagementOrchestrator();
-    managementOrchestrator.createStages(app);
-
-    return app;
-  } catch (error) {
-    throw new FactoryError(
-      'Failed to create management application',
-      'createManagementApp',
-      error instanceof Error ? error : new Error(String(error)),
-    );
-  }
-}
-
-/**
- * Create a workload application with auto-detection
- *
- * Specialized factory for workload account infrastructure.
- * Validates that the manifest is a workload type and creates
- * stages for all defined environments automatically.
- *
- * @param options - Optional configuration
- * @returns Promise resolving to the configured workload application
- *
- * @example
- * ```typescript
- * // For workload accounts (websites, applications, etc.)
- * import { createWorkloadApp } from '@codeiqlabs/aws-cdk/application/factories';
- *
- * createWorkloadApp().then(app => app.synth());
- * ```
- */
-export async function createWorkloadApp(options: FactoryOptions = {}): Promise<CdkApplication> {
-  try {
-    const app = await createConfiguredApplication({
-      ...options,
-      expectedType: 'workload', // Enforce workload type
-    });
-
-    // Validate manifest type
-    validateApplicationType(app, 'workload', 'createWorkloadApp');
-
-    // Create workload stages based on detected pattern
-    const workloadOrchestrator = new WorkloadOrchestrator();
-    workloadOrchestrator.createStages(app);
-
-    return app;
-  } catch (error) {
-    throw new FactoryError(
-      'Failed to create workload application',
-      'createWorkloadApp',
+      'Failed to create application',
+      'createApp',
       error instanceof Error ? error : new Error(String(error)),
     );
   }

@@ -11,17 +11,19 @@
  * - Automatic application of standard tags
  * - Type-safe configuration interfaces
  *
- * Available stack types:
- * - Base stacks: Foundation classes for extending
- * - Management stacks: Pre-built management account infrastructure
- * - Workload stacks: Pre-built workload account infrastructure
+ * Stacks are organized by component/domain:
+ * - Base: Foundation classes for extending
+ * - Organizations: AWS Organizations infrastructure
+ * - Identity Center: AWS SSO infrastructure
+ * - Domains: Domain management and delegation
+ * - Static Hosting: S3 + CloudFront static website hosting
  */
 
 // Base stack classes
 export * from './base';
 
-// Management account stack implementations
-export * from './management';
-
-// Workload account stack implementations
-export * from './workload';
+// Component-based stack implementations
+export * from './organizations';
+export * from './identity-center';
+export * from './domains';
+export * from './static-hosting';

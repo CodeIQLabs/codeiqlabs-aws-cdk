@@ -1,0 +1,172 @@
+# Sample Manifest for Identity Center Stack
+# This manifest creates AWS Identity Center (SSO) with users, groups, permission sets, and assignments
+# Stack Created: ManagementIdentityCenterStack
+
+# yaml-language-server: $schema=https://schemas.codeiqlabs.dev/aws/manifest.schema.json
+
+# ============================================================================
+# CORE CONFIGURATION
+# ============================================================================
+project: "MyOrganization"
+company: "MyCompany"
+
+# ============================================================================
+# DEPLOYMENT CONFIGURATION
+# ============================================================================
+deployment:
+  accountId: "123456789012" # Your AWS management account ID
+  region: "us-east-1"
+
+# ============================================================================
+# AWS IDENTITY CENTER CONFIGURATION
+# ============================================================================
+identityCenter:
+  enabled: true
+
+  # Identity Center instance ARN (get from AWS Console or CLI)
+  # Run: aws sso-admin list-instances
+  instanceArn: "arn:aws:sso:::instance/ssoins-1234567890abcdef"
+
+  # Identity Store ID (required for user creation)
+  # Run: aws identitystore list-identity-stores
+  identityStoreId: "d-1234567890"
+
+  # Identity source configuration (optional)
+  identitySource:
+    type: "IDENTITY_CENTER" # or "ACTIVE_DIRECTORY", "EXTERNAL_PROVIDER"
+
+  # ============================================================================
+  # USERS
+  # ============================================================================
+  users:
+    - username: "john.doe"
+      email: "john.doe@mycompany.com"
+      givenName: "John"
+      familyName: "Doe"
+      displayName: "John Doe"
+
+    - username: "jane.smith"
+      email: "jane.smith@mycompany.com"
+      givenName: "Jane"
+      familyName: "Smith"
+      displayName: "Jane Smith"
+
+    - username: "bob.johnson"
+      email: "bob.johnson@mycompany.com"
+      givenName: "Bob"
+      familyName: "Johnson"
+      displayName: "Bob Johnson"
+
+  # ============================================================================
+  # PERMISSION SETS
+  # ============================================================================
+  permissionSets:
+    # Administrator Access
+    - name: "AdministratorAccess"
+      description: "Full administrator access to AWS services"
+      sessionDuration: "PT8H" # 8 hours
+      managedPolicies:
+        - "arn:aws:iam::aws:policy/AdministratorAccess"
+      tags:
+        Purpose: "Full Admin"
+
+    # Power User Access
+    - name: "PowerUserAccess"
+      description: "Power user access (no IAM permissions)"
+      sessionDuration: "PT8H"
+      managedPolicies:
+        - "arn:aws:iam::aws:policy/PowerUserAccess"
+      tags:
+        Purpose: "Developer"
+
+    # Read Only Access
+    - name: "ReadOnlyAccess"
+      description: "Read-only access to AWS services"
+      sessionDuration: "PT12H" # 12 hours
+      managedPolicies:
+        - "arn:aws:iam::aws:policy/ReadOnlyAccess"
+      tags:
+        Purpose: "Auditor"
+
+    # Developer Access (Custom)
+    - name: "DeveloperAccess"
+      description: "Developer access with specific permissions"
+      sessionDuration: "PT8H"
+      managedPolicies:
+        - "arn:aws:iam::aws:policy/AmazonEC2FullAccess"
+        - "arn:aws:iam::aws:policy/AmazonS3FullAccess"
+        - "arn:aws:iam::aws:policy/CloudWatchFullAccess"
+      inlinePolicy:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: "Allow"
+            Action:
+              - "lambda:*"
+              - "dynamodb:*"
+              - "apigateway:*"
+            Resource: "*"
+      tags:
+        Purpose: "Developer"
+
+    # Billing Access
+    - name: "BillingAccess"
+      description: "Access to billing and cost management"
+      sessionDuration: "PT4H"
+      managedPolicies:
+        - "arn:aws:iam::aws:policy/job-function/Billing"
+      tags:
+        Purpose: "Finance"
+
+  # ============================================================================
+  # ACCOUNT ASSIGNMENTS
+  # ============================================================================
+  assignments:
+    # Assign AdministratorAccess to john.doe in production account
+    - principalType: "USER"
+      principalId: "john.doe" # Username from users section
+      permissionSetName: "AdministratorAccess"
+      targetType: "AWS_ACCOUNT"
+      targetId: "234567890123" # Production account ID
+
+    # Assign PowerUserAccess to jane.smith in production account
+    - principalType: "USER"
+      principalId: "jane.smith"
+      permissionSetName: "PowerUserAccess"
+      targetType: "AWS_ACCOUNT"
+      targetId: "234567890123"
+
+    # Assign DeveloperAccess to bob.johnson in dev account
+    - principalType: "USER"
+      principalId: "bob.johnson"
+      permissionSetName: "DeveloperAccess"
+      targetType: "AWS_ACCOUNT"
+      targetId: "345678901234" # Dev account ID
+
+    # Assign ReadOnlyAccess to all users in staging account
+    - principalType: "USER"
+      principalId: "john.doe"
+      permissionSetName: "ReadOnlyAccess"
+      targetType: "AWS_ACCOUNT"
+      targetId: "456789012345" # Staging account ID
+
+    - principalType: "USER"
+      principalId: "jane.smith"
+      permissionSetName: "ReadOnlyAccess"
+      targetType: "AWS_ACCOUNT"
+      targetId: "456789012345"
+
+  # Global tags for Identity Center resources
+  tags:
+    ManagedBy: "CDK"
+    Framework: "CodeIQLabs"
+
+# ============================================================================
+# DEPLOYMENT OPTIONS
+# ============================================================================
+options:
+  requireMfaForIdentityCenter: true
+  defaultSessionDuration: 8 # hours
+  defaultTags:
+    Owner: "Security Team"
+    ManagedBy: "CDK"
+    Project: "MyOrganization"
