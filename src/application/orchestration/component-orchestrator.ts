@@ -21,7 +21,6 @@
  * - organization → deployment.accountId (single stack)
  * - identityCenter → deployment.accountId (single stack)
  * - domains → deployment.accountId (single stack)
- * - staticHosting → environments[*].accountId (one stack per environment)
  * - networking → environments[*].accountId (one stack per environment)
  *
  * @example Single-account deployment
@@ -50,8 +49,9 @@
  *   prod:
  *     accountId: "719640820326"
  *     region: us-east-1
- * staticHosting:
- *   enabled: true
+ * networking:
+ *   vpc:
+ *     enabled: true
  * ```
  * Creates 2 stacks (one in nprd account, one in prod account)
  *
@@ -69,14 +69,15 @@
  *   enabled: true
  * domains:
  *   enabled: true
- * staticHosting:
- *   enabled: true
+ * networking:
+ *   vpc:
+ *     enabled: true
  * ```
  * Creates 4 stacks total:
  * - Organizations stack in 682475224767
  * - Domains stack in 682475224767
- * - StaticHosting-nprd stack in 466279485605
- * - StaticHosting-prod stack in 719640820326
+ * - VPC-nprd stack in 466279485605
+ * - VPC-prod stack in 719640820326
  */
 
 import type { CdkApplication } from '../cdk-application';
@@ -140,27 +141,53 @@ export class ComponentOrchestrator implements BaseOrchestrator {
     // ========================================================================
 
     // Create Organizations stack if enabled
+    let organizationsStack: ManagementOrganizationsStack | undefined;
     if (config.organization?.enabled) {
       try {
-        new ManagementOrganizationsStack(app, naming.stackName('Organizations'), {
-          stackConfig: {
-            project: config.project,
-            environment: 'mgmt',
-            region: deploymentRegion,
-            accountId: deploymentAccountId,
-            owner: config.company,
-            company: config.company,
+        organizationsStack = new ManagementOrganizationsStack(
+          app,
+          naming.stackName('Organizations'),
+          {
+            stackConfig: {
+              project: config.project,
+              environment: 'mgmt',
+              region: deploymentRegion,
+              accountId: deploymentAccountId,
+              owner: config.company,
+              company: config.company,
+            },
+            config: config as any,
+            orgRootId: config.organization.rootId,
+            env: primaryEnv,
           },
-          config: config as any,
-          orgRootId: config.organization.rootId,
-          env: primaryEnv,
-        });
+        );
       } catch (error) {
         throw new OrchestrationError(
           'Failed to create Organizations stack',
           'organizations',
           error instanceof Error ? error : new Error(String(error)),
         );
+      }
+    }
+
+    // Build accountIds map for Identity Center assignments
+    // This map is used to resolve account keys (e.g., "budgettrack-nprd") to account IDs
+    let accountIds: Record<string, string> = {};
+
+    // If Organizations stack exists, get account IDs from it
+    if (organizationsStack) {
+      accountIds = organizationsStack.accountIds;
+    } else if (config.organization?.organizationalUnits) {
+      // If no Organizations stack but we have org config, build map from manifest
+      // This handles the case where organization is disabled but we still need account mappings
+      for (const ou of config.organization.organizationalUnits) {
+        if (ou.accounts) {
+          for (const account of ou.accounts) {
+            if (account.accountId) {
+              accountIds[account.key] = account.accountId;
+            }
+          }
+        }
       }
     }
 
@@ -177,6 +204,7 @@ export class ComponentOrchestrator implements BaseOrchestrator {
             company: config.company,
           },
           config: config as any,
+          accountIds, // Pass the account IDs map for assignment resolution
           env: primaryEnv,
         });
       } catch (error) {
@@ -219,35 +247,19 @@ export class ComponentOrchestrator implements BaseOrchestrator {
 
     if (config.environments) {
       for (const [envName, envConfig] of Object.entries(config.environments)) {
-        // TODO: Uncomment when StaticHostingStack and VpcStack are implemented
+        // TODO: Uncomment when VpcStack is implemented
         // const envEnv = {
         //   account: envConfig.accountId,
         //   region: envConfig.region,
         // };
 
-        // TODO: Uncomment when StaticHostingStack and VpcStack are implemented
+        // TODO: Uncomment when VpcStack is implemented
         // const envNaming = new ResourceNaming({
         //   project: config.project,
         //   environment: envName,
         //   region: envConfig.region,
         //   accountId: envConfig.accountId,
         // });
-
-        // Static Hosting stack (if enabled)
-        if (config.staticHosting?.enabled) {
-          try {
-            // TODO: Create StaticHostingStack when implemented
-            console.log(
-              `Would create StaticHosting stack for ${envName} in account ${envConfig.accountId}`,
-            );
-          } catch (error) {
-            throw new OrchestrationError(
-              `Failed to create StaticHosting stack for environment ${envName}`,
-              'staticHosting',
-              error instanceof Error ? error : new Error(String(error)),
-            );
-          }
-        }
 
         // Networking/VPC stack (if enabled)
         if (config.networking?.vpc?.enabled) {

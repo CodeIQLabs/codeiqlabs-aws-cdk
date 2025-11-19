@@ -28,7 +28,7 @@ import { createConfiguredApplication, FactoryError } from './factory-utils';
  *
  * **What Gets Deployed:**
  * - Single-account components (organization, identityCenter, domains) → deployment.accountId
- * - Multi-environment components (staticHosting, networking) → environments[*].accountId
+ * - Multi-environment components (networking) → environments[*].accountId
  *
  * **Deployment Options:**
  * - `cdk deploy --all` - Deploy all enabled component stacks
@@ -74,16 +74,17 @@ import { createConfiguredApplication, FactoryError } from './factory-utils';
  * //   prod:
  * //     accountId: "719640820326"
  * //     region: us-east-1
- * // staticHosting:
- * //   enabled: true
+ * // networking:
+ * //   vpc:
+ * //     enabled: true
  *
  * import { createApp } from '@codeiqlabs/aws-cdk';
  *
  * createApp().then(app => app.synth());
  *
  * // Creates 2 stacks:
- * // - CodeIQLabs-StaticHosting-nprd-Stack in account 466279485605
- * // - CodeIQLabs-StaticHosting-prod-Stack in account 719640820326
+ * // - CodeIQLabs-VPC-nprd-Stack in account 466279485605
+ * // - CodeIQLabs-VPC-prod-Stack in account 719640820326
  * ```
  *
  * @example Mixed deployment (management + workload in same manifest)
@@ -101,8 +102,9 @@ import { createConfiguredApplication, FactoryError } from './factory-utils';
  * //   enabled: true
  * // domains:
  * //   enabled: true
- * // staticHosting:
- * //   enabled: true
+ * // networking:
+ * //   vpc:
+ * //     enabled: true
  *
  * import { createApp } from '@codeiqlabs/aws-cdk';
  *
@@ -111,8 +113,8 @@ import { createConfiguredApplication, FactoryError } from './factory-utils';
  * // Creates 4 stacks total:
  * // - Organizations stack in 682475224767
  * // - Domains stack in 682475224767
- * // - StaticHosting-nprd stack in 466279485605
- * // - StaticHosting-prod stack in 719640820326
+ * // - VPC-nprd stack in 466279485605
+ * // - VPC-prod stack in 719640820326
  * ```
  */
 export async function createApp(options: FactoryOptions = {}): Promise<CdkApplication> {

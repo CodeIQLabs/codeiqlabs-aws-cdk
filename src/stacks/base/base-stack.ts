@@ -30,7 +30,7 @@
  * }
  * ```
  *
- * @example Multi-environment component (staticHosting, networking)
+ * @example Multi-environment component (networking)
  * ```typescript
  * const stackConfig: BaseStackConfig = {
  *   project: 'CodeIQLabs',
@@ -41,9 +41,9 @@
  *   company: 'CodeIQLabs',
  * };
  *
- * export class StaticHostingStack extends BaseStack {
- *   constructor(scope: Construct, id: string, props: StaticHostingStackProps) {
- *     super(scope, id, 'Static-Hosting', {
+ * export class VpcStack extends BaseStack {
+ *   constructor(scope: Construct, id: string, props: VpcStackProps) {
+ *     super(scope, id, 'VPC', {
  *       ...props,
  *       stackConfig,
  *     });
@@ -64,7 +64,7 @@ import { ResourceNaming, generateStandardTags } from '@codeiqlabs/aws-utils';
  * This configuration is environment-based, not account-type-based.
  * The same configuration structure works for any deployment pattern:
  * - Single-account components (organization, identityCenter, domains)
- * - Multi-environment components (staticHosting, networking)
+ * - Multi-environment components (networking)
  *
  * The environment field determines the naming convention:
  * - 'mgmt' → Display name: 'Management' → Stack: 'MyProject-Management-Organizations-Stack'

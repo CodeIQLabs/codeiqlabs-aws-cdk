@@ -14,8 +14,5 @@ export * from './acm';
 export * from './organizations';
 export * from './identity-center';
 
-// Legacy static hosting (will be refactored to use individual service constructs)
-export * from './static-hosting';
-
 // Common types
 export * from './types';

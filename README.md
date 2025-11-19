@@ -1,7 +1,7 @@
 # @codeiqlabs/aws-cdk
 
-**Component-based AWS CDK framework that auto-orchestrates Organizations, Identity Center, domains,
-and static hosting from a manifest.**
+**Component-based AWS CDK framework that auto-orchestrates Organizations, Identity Center, and
+domain delegation from a manifest.**
 
 [![GitHub package version](https://img.shields.io/github/package-json/v/CodeIQLabs/codeiqlabs-aws-cdk?label=version)](https://github.com/CodeIQLabs/codeiqlabs-aws-cdk/packages)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
@@ -17,12 +17,11 @@ for:
 - **AWS Organizations** – Create OUs, accounts, and org policies
 - **IAM Identity Center** – Users, groups, permission sets, and account assignments
 - **Domain Delegation** – Route 53 hosted zones with cross-account DNS delegation
-- **Static Hosting** – S3 + CloudFront + ACM with HTTPS and DNS
 
 **Key characteristics:**
 
 - **Manifest-driven orchestration** – Uses a `manifest.yaml` to automatically create stacks based on
-  enabled components (`organization`, `identityCenter`, `domains`, `staticHosting`)
+  enabled components (`organization`, `identityCenter`, `domains`)
 - **Multi-account/multi-environment** – Targets complex setups with consistent naming and tagging
   via a unified `BaseStack`
 - **Component-based architecture** – No manifestType routing; components define what gets deployed
@@ -40,14 +39,13 @@ npm install @codeiqlabs/aws-cdk
 
 ## Features
 
-| Component               | What You Get                                                                                                               | Stacks                                                     |
-| ----------------------- | -------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------- |
-| **Organizations**       | Create OUs and accounts<br>Apply org policies                                                                              | `ManagementOrganizationsStack`                             |
-| **Identity Center**     | Users, groups, permission sets<br>Account assignments                                                                      | `ManagementIdentityCenterStack`                            |
-| **Domains & DNS**       | Hosted zones<br>Cross-account DNS delegation                                                                               | `DomainDelegationStack`                                    |
-| **Static Hosting**      | S3 bucket + CloudFront distribution<br>HTTPS via ACM<br>DNS records                                                        | `StaticHostingDomainStack`<br>`StaticHostingFrontendStack` |
-| **Base Stack**          | Unified `BaseStack` with consistent naming, tagging, and environment validation                                            | All stacks extend `BaseStack`                              |
-| **Reusable Constructs** | L2/L3 constructs for ACM, CloudFront, Route 53, S3, Identity Center, Organizations, static hosting, deployment permissions | Available in `src/constructs`                              |
+| Component               | What You Get                                                                                               | Stacks                          |
+| ----------------------- | ---------------------------------------------------------------------------------------------------------- | ------------------------------- |
+| **Organizations**       | Create OUs and accounts<br>Apply org policies                                                              | `ManagementOrganizationsStack`  |
+| **Identity Center**     | Users, groups, permission sets<br>Account assignments                                                      | `ManagementIdentityCenterStack` |
+| **Domains & DNS**       | Hosted zones<br>Cross-account DNS delegation                                                               | `DomainDelegationStack`         |
+| **Base Stack**          | Unified `BaseStack` with consistent naming, tagging, and environment validation                            | All stacks extend `BaseStack`   |
+| **Reusable Constructs** | L2/L3 constructs for ACM, CloudFront, Route 53, S3, Identity Center, Organizations, deployment permissions | Available in `src/constructs`   |
 
 ## How It Works (Concepts)
 
@@ -86,16 +84,17 @@ environments:
     accountId: '345678901234'
     region: us-east-1
 
-staticHosting:
-  enabled: true
-  # ... static hosting config
+networking:
+  vpc:
+    enabled: true
+    # ... VPC config
 ```
 
 ### ComponentOrchestrator
 
 The `ComponentOrchestrator` reads your config and creates the corresponding stacks automatically:
 
-- Detects enabled components (`organization`, `identityCenter`, `domains`, `staticHosting`)
+- Detects enabled components (`organization`, `identityCenter`, `domains`)
 - Creates appropriate stacks for each component
 - Handles cross-account dependencies and stack ordering
 - No manifestType routing needed
@@ -202,9 +201,7 @@ For complete examples of each stack type, see the [samples/](./samples/) directo
   permission sets
 - **[Domain Delegation Stack](./samples/03-domain-delegation-stack.yaml)** - Route53 with
   cross-account DNS delegation
-- **[Static Hosting Stacks](./samples/04-static-hosting-stacks.yaml)** - S3 + CloudFront + ACM for
-  static websites
-- **[Complete Management Account](./samples/05-complete-management-account.yaml)** - Full governance
+- **[Complete Management Account](./samples/04-complete-management-account.yaml)** - Full governance
   setup
 
 Each sample includes detailed comments explaining all configuration options.
@@ -215,7 +212,7 @@ Each sample includes detailed comments explaining all configuration options.
 codeiqlabs-aws-cdk/
 ├── src/
 │   ├── application/      # App factory, config, orchestration
-│   ├── stacks/          # Prebuilt stacks (organizations, identity-center, domains, static-hosting, base)
+│   ├── stacks/          # Prebuilt stacks (organizations, identity-center, domains, base)
 │   ├── constructs/      # Reusable constructs (ACM, CloudFront, S3, Route 53, etc.)
 │   └── core/            # Naming/tagging base constructs
 ├── samples/             # Sample manifest files for each stack type
@@ -236,17 +233,12 @@ codeiqlabs-aws-cdk/
 Enable `organization` and `identityCenter` components in your manifest. The framework creates the
 org structure, OUs, accounts, users, groups, and permission sets.
 
-**2. Deploy static sites to multiple environments**
-
-Enable `staticHosting` and define multiple `environments`. The framework creates domain stacks and
-frontend stacks for each environment (nprd, prod, etc.).
-
-**3. Delegate DNS to workload accounts**
+**2. Delegate DNS to workload accounts**
 
 Enable `domains` to create hosted zones in the management account and delegate DNS management to
 workload accounts.
 
-**4. Standardize naming/tagging across stacks**
+**3. Standardize naming/tagging across stacks**
 
 All stacks extend `BaseStack`, which provides consistent resource naming and tagging based on
 environment, project, and company.

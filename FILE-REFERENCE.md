@@ -43,7 +43,7 @@ based on enabled components in manifest.yaml
 
 ## `/src` - Source Code Directory
 
-**Total TypeScript Files: 53**
+**Total TypeScript Files: 47**
 
 ### Complete File List
 
@@ -62,7 +62,7 @@ based on enabled components in manifest.yaml
 11. `src/application/orchestration/index.ts`
 12. `src/application/types.ts`
 
-#### Constructs Layer (25 files)
+#### Constructs Layer (22 files)
 
 13. `src/constructs/acm/constructs.ts`
 14. `src/constructs/acm/index.ts`
@@ -85,35 +85,29 @@ based on enabled components in manifest.yaml
 31. `src/constructs/s3/constructs.ts`
 32. `src/constructs/s3/index.ts`
 33. `src/constructs/s3/types.ts`
-34. `src/constructs/static-hosting/constructs.ts`
-35. `src/constructs/static-hosting/index.ts`
-36. `src/constructs/static-hosting/types.ts`
-37. `src/constructs/types.ts`
+34. `src/constructs/types.ts`
 
 #### Core Layer (2 files)
 
-38. `src/core/constructs/named-construct.ts`
-39. `src/core/constructs/tagged-construct.ts`
+35. `src/core/constructs/named-construct.ts`
+36. `src/core/constructs/tagged-construct.ts`
 
-#### Stacks Layer - Component-Based Organization (13 files)
+#### Stacks Layer - Component-Based Organization (10 files)
 
-40. `src/stacks/base/base-stack.ts`
-41. `src/stacks/base/index.ts`
-42. `src/stacks/domains/domain-delegation-stack.ts`
-43. `src/stacks/domains/index.ts`
-44. `src/stacks/identity-center/identity-center-stack.ts`
-45. `src/stacks/identity-center/index.ts`
-46. `src/stacks/index.ts`
-47. `src/stacks/organizations/index.ts`
-48. `src/stacks/organizations/organizations-stack.ts`
-49. `src/stacks/static-hosting/index.ts`
-50. `src/stacks/static-hosting/static-hosting-domain-stack.ts`
-51. `src/stacks/static-hosting/static-hosting-frontend-stack.ts`
-52. `src/stacks/types.ts`
+37. `src/stacks/base/base-stack.ts`
+38. `src/stacks/base/index.ts`
+39. `src/stacks/domains/domain-delegation-stack.ts`
+40. `src/stacks/domains/index.ts`
+41. `src/stacks/identity-center/identity-center-stack.ts`
+42. `src/stacks/identity-center/index.ts`
+43. `src/stacks/index.ts`
+44. `src/stacks/organizations/index.ts`
+45. `src/stacks/organizations/organizations-stack.ts`
+46. `src/stacks/types.ts`
 
 #### Root (1 file)
 
-53. `src/index.ts`
+47. `src/index.ts`
 
 ---
 
@@ -244,7 +238,7 @@ The application layer handles CDK application creation, configuration, and orche
 
 **Key Responsibilities**:
 
-- Detects enabled components in manifest (organization, identityCenter, domains, staticHosting)
+- Detects enabled components in manifest (organization, identityCenter, domains)
 - Creates appropriate stacks for each enabled component
 - Handles cross-account dependencies and stack ordering
 
@@ -369,41 +363,6 @@ Stacks for domain management and DNS delegation.
 #### `/src/stacks/domains/index.ts`
 
 **Purpose**: Barrel export for domain management stacks.
-
----
-
-### `/src/stacks/static-hosting` - Static Hosting Component
-
-Stacks for static website hosting with S3 and CloudFront.
-
-#### `/src/stacks/static-hosting/static-hosting-domain-stack.ts`
-
-**Purpose**: Stack for Route53 and ACM certificate configuration for static hosting.
-
-**Key Features**:
-
-- Creates Route53 hosted zones for static sites
-- Provisions ACM certificates for HTTPS
-- Configures DNS records
-
-**Key Class**: `StaticHostingDomainStack`
-
-#### `/src/stacks/static-hosting/static-hosting-frontend-stack.ts`
-
-**Purpose**: Stack for S3 and CloudFront static website hosting.
-
-**Key Features**:
-
-- Creates S3 buckets for static content
-- Configures CloudFront distributions
-- Sets up HTTPS with ACM certificates
-- Configures caching and security headers
-
-**Key Class**: `StaticHostingFrontendStack`
-
-#### `/src/stacks/static-hosting/index.ts`
-
-**Purpose**: Barrel export for static hosting stacks.
 
 ---
 
@@ -551,29 +510,6 @@ Standardized L2/L3 constructs for common AWS resources.
 #### `/src/constructs/cloudfront/index.ts`
 
 **Purpose**: Barrel export for CloudFront constructs.
-
----
-
-### `/src/constructs/static-hosting` - Static Hosting Constructs
-
-#### `/src/constructs/static-hosting/constructs.ts`
-
-**Purpose**: High-level constructs combining S3, CloudFront, Route53, and ACM for complete static
-hosting.
-
-**Key Constructs**:
-
-- Complete static website hosting solution
-- Integrates S3, CloudFront, ACM, and Route53
-- Handles HTTPS, caching, and DNS
-
-#### `/src/constructs/static-hosting/types.ts`
-
-**Purpose**: Type definitions for static hosting constructs.
-
-#### `/src/constructs/static-hosting/index.ts`
-
-**Purpose**: Barrel export for static hosting constructs.
 
 ---
 

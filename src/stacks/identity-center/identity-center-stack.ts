@@ -76,6 +76,8 @@ export class ManagementIdentityCenterStack extends BaseStack {
     this.identityCenter = new IdentityCenterConstruct(this, 'IdentityCenter', {
       naming: this.naming,
       instanceArn: identityCenter.instanceArn,
+      identityStoreId: identityCenter.identityStoreId,
+      users: identityCenter.users,
       permissionSets: identityCenter.permissionSets,
       assignments: identityCenter.assignments,
       accountIds: props.accountIds,

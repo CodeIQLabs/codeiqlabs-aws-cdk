@@ -16,7 +16,6 @@
  * - Organizations: AWS Organizations infrastructure
  * - Identity Center: AWS SSO infrastructure
  * - Domains: Domain management and delegation
- * - Static Hosting: S3 + CloudFront static website hosting
  */
 
 // Base stack classes
@@ -26,4 +25,3 @@ export * from './base';
 export * from './organizations';
 export * from './identity-center';
 export * from './domains';
-export * from './static-hosting';
