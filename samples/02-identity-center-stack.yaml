@@ -1,0 +1,55 @@
+# Sample manifest for deploying the ManagementIdentityCenterStack
+project: ExampleProject
+company: ExampleCorp
+
+deployment:
+  accountId: '111111111111'
+  region: us-east-1
+
+management:
+  environment: mgmt
+
+# Organization data is optional for the stack but helps resolve assignment targets
+organization:
+  enabled: false
+  rootId: r-example
+  organizationalUnits:
+    - key: workloads
+      name: Workloads
+      accounts:
+        - key: prod
+          name: Production
+          accountId: '555555555555'
+        - key: dev
+          name: Development
+          accountId: '444444444444'
+
+identityCenter:
+  enabled: true
+  instanceArn: arn:aws:sso:::instance/ssoins-1234567890abcdef
+  identityStoreId: d-1234567890
+  tags:
+    Owner: platform-team
+    ManagedBy: infrastructure
+  users:
+    - username: jane@example.com
+      displayName: Jane Doe
+      email: jane@example.com
+  permissionSets:
+    - name: AdminAccess
+      description: Administrator access to production
+      managedPolicies:
+        - arn:aws:iam::aws:policy/AdministratorAccess
+    - name: ReadOnly
+      description: Read-only access for troubleshooting
+      managedPolicies:
+        - arn:aws:iam::aws:policy/ReadOnlyAccess
+  assignments:
+    - principalType: USER
+      principal: jane@example.com
+      permissionSet: AdminAccess
+      target: prod
+    - principalType: USER
+      principal: jane@example.com
+      permissionSet: ReadOnly
+      target: dev

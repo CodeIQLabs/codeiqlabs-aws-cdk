@@ -128,10 +128,6 @@ The `ComponentOrchestrator` reads your config and creates the corresponding stac
 └─────────────────────────────────────────┘
 ```
 
-**Learn more:**
-
-- [Architecture Documentation](../docs/codeiqlabs/aws-cdk/complete-file-reference.md)
-
 ## Quick Start
 
 ### Minimal Example
@@ -217,12 +213,10 @@ codeiqlabs-aws-cdk/
 │   └── core/            # Naming/tagging base constructs
 ├── samples/             # Sample manifest files for each stack type
 ├── tests/               # ESM/CommonJS integration tests
-├── dist/                # Build output (generated)
 └── package.json
 ```
 
-**Full reference:** See
-[Complete File Reference](../docs/codeiqlabs/aws-cdk/complete-file-reference.md)
+**Full reference:** See [Complete File Reference](./FILE-REFERENCE.md)
 
 ## Usage Patterns
 
@@ -262,13 +256,13 @@ cd codeiqlabs-aws-cdk
 # Install dependencies
 npm install
 
-# Build the package
+# Build the package (generates dist outputs and runs format/lint)
 npm run build
 
-# Run tests
-npm run test
+# Run smoke tests (requires dist/ from the build)
+npm run test:all
 
-# Lint and format
+# Lint and format (available separately if needed)
 npm run lint
 npm run format
 ```
@@ -277,13 +271,13 @@ npm run format
 
 ```bash
 # Run all tests
-npm run test
+npm run test:all
 
-# Run tests in watch mode
-npm run test:watch
+# Run CommonJS smoke test (requires built dist/)
+npm run test:load
 
-# Run tests with coverage
-npm run test:coverage
+# Run ESM smoke test (requires built dist/)
+npm run test:esm
 ```
 
 ## Status & Compatibility

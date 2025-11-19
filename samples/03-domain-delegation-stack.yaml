@@ -1,0 +1,29 @@
+# Sample manifest for deploying the DomainDelegationStack
+project: ExampleProject
+company: ExampleCorp
+
+deployment:
+  accountId: '111111111111'
+  region: us-east-1
+
+management:
+  environment: mgmt
+
+domains:
+  enabled: true
+  registeredDomains:
+    - name: example.com
+      hostedZoneId: Z111EXAMPLE123
+      delegations:
+        - subdomain: apps
+          targetAccount: '444444444444'
+          targetEnvironment: dev
+          roleName: Dev-CrossAccount-Deployment-Role
+          purpose: Workload applications
+          enabled: true
+        - subdomain: prod
+          targetAccount: '555555555555'
+          targetEnvironment: prod
+          roleName: Prod-CrossAccount-Deployment-Role
+          purpose: Production applications
+          enabled: true

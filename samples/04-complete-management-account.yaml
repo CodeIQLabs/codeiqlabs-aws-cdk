@@ -1,0 +1,94 @@
+# Sample manifest for deploying a complete management account with all components
+project: ExampleProject
+company: ExampleCorp
+
+deployment:
+  accountId: '111111111111'
+  region: us-east-1
+
+management:
+  environment: mgmt
+
+organization:
+  enabled: true
+  mode: create
+  featureSet: ALL
+  rootId: r-example
+  organizationalUnits:
+    - key: security
+      name: Security
+      accounts:
+        - key: logging
+          name: Logging
+          email: logging@example.com
+          accountId: '222222222222'
+        - key: audit
+          name: Audit
+          email: audit@example.com
+          accountId: '333333333333'
+    - key: workloads
+      name: Workloads
+      accounts:
+        - key: dev
+          name: Development
+          email: dev@example.com
+          accountId: '444444444444'
+        - key: prod
+          name: Production
+          email: prod@example.com
+          accountId: '555555555555'
+
+identityCenter:
+  enabled: true
+  instanceArn: arn:aws:sso:::instance/ssoins-1234567890abcdef
+  identityStoreId: d-1234567890
+  tags:
+    Owner: platform-team
+    ManagedBy: infrastructure
+  users:
+    - username: jane@example.com
+      displayName: Jane Doe
+      email: jane@example.com
+    - username: jack@example.com
+      displayName: Jack Smith
+      email: jack@example.com
+  permissionSets:
+    - name: AdminAccess
+      description: Administrator access to production
+      managedPolicies:
+        - arn:aws:iam::aws:policy/AdministratorAccess
+    - name: ReadOnly
+      description: Read-only access for troubleshooting
+      managedPolicies:
+        - arn:aws:iam::aws:policy/ReadOnlyAccess
+  assignments:
+    - principalType: USER
+      principal: jane@example.com
+      permissionSet: AdminAccess
+      target: prod
+    - principalType: USER
+      principal: jack@example.com
+      permissionSet: ReadOnly
+      target: dev
+
+# Domain configuration enables cross-account delegation from the management account
+# to workload accounts created above
+
+domains:
+  enabled: true
+  registeredDomains:
+    - name: example.com
+      hostedZoneId: Z111EXAMPLE123
+      delegations:
+        - subdomain: apps
+          targetAccount: '444444444444'
+          targetEnvironment: dev
+          roleName: Dev-CrossAccount-Deployment-Role
+          purpose: Workload applications
+          enabled: true
+        - subdomain: prod
+          targetAccount: '555555555555'
+          targetEnvironment: prod
+          roleName: Prod-CrossAccount-Deployment-Role
+          purpose: Production applications
+          enabled: true

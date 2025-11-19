@@ -1,0 +1,39 @@
+# Sample manifest for deploying the ManagementOrganizationsStack
+project: ExampleProject
+company: ExampleCorp
+
+deployment:
+  accountId: '111111111111'
+  region: us-east-1
+
+management:
+  environment: mgmt
+
+organization:
+  enabled: true
+  mode: create
+  featureSet: ALL
+  rootId: r-example
+  organizationalUnits:
+    - key: security
+      name: Security
+      accounts:
+        - key: logging
+          name: Logging
+          email: logging@example.com
+          accountId: '222222222222'
+        - key: audit
+          name: Audit
+          email: audit@example.com
+          accountId: '333333333333'
+    - key: workloads
+      name: Workloads
+      accounts:
+        - key: dev
+          name: Development
+          email: dev@example.com
+          accountId: '444444444444'
+        - key: prod
+          name: Production
+          email: prod@example.com
+          accountId: '555555555555'
