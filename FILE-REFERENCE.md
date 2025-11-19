@@ -42,7 +42,8 @@ based on enabled components in manifest.yaml
 
 - **`FILE-REFERENCE.md`** - This file. Repository-wide file inventory with descriptions.
 - **`samples/`** - Sample manifest files referenced in the README for common stack deployments.
-- **`tests/`** - ESM and CommonJS smoke tests that expect the library to be built into `dist/`.
+- **`tests/`** - ESM and CommonJS smoke tests (`npm run test:all`) that expect the library to be
+  built into `dist/`.
 
 ---
 
