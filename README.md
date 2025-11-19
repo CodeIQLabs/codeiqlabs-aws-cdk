@@ -128,10 +128,6 @@ The `ComponentOrchestrator` reads your config and creates the corresponding stac
 └─────────────────────────────────────────┘
 ```
 
-**Learn more:**
-
-- [Architecture Documentation](../docs/codeiqlabs/aws-cdk/complete-file-reference.md)
-
 ## Quick Start
 
 ### Minimal Example
@@ -217,12 +213,10 @@ codeiqlabs-aws-cdk/
 │   └── core/            # Naming/tagging base constructs
 ├── samples/             # Sample manifest files for each stack type
 ├── tests/               # ESM/CommonJS integration tests
-├── dist/                # Build output (generated)
 └── package.json
 ```
 
-**Full reference:** See
-[Complete File Reference](../docs/codeiqlabs/aws-cdk/complete-file-reference.md)
+**Full reference:** See [Complete File Reference](./FILE-REFERENCE.md)
 
 ## Usage Patterns
 
