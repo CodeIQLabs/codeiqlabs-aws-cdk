@@ -3,7 +3,7 @@ project: ExampleProject
 company: ExampleCorp
 
 deployment:
-  accountId: '111111111111'
+  accountId: "111111111111"
   region: us-east-1
 
 management:
@@ -19,10 +19,10 @@ organization:
       accounts:
         - key: prod
           name: Production
-          accountId: '555555555555'
+          accountId: "555555555555"
         - key: dev
           name: Development
-          accountId: '444444444444'
+          accountId: "444444444444"
 
 identityCenter:
   enabled: true

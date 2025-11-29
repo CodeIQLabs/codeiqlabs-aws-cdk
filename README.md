@@ -16,7 +16,8 @@ for:
 
 - **AWS Organizations** – Create OUs, accounts, and org policies
 - **IAM Identity Center** – Users, groups, permission sets, and account assignments
-- **Domain Delegation** – Route 53 hosted zones with cross-account DNS delegation
+- **Multi-Account Domain Management** – Route 53 hosted zones, CloudFront distributions, ACM
+  certificates, and cross-account DNS delegation
 
 **Key characteristics:**
 
@@ -39,13 +40,13 @@ npm install @codeiqlabs/aws-cdk
 
 ## Features
 
-| Component               | What You Get                                                                                               | Stacks                          |
-| ----------------------- | ---------------------------------------------------------------------------------------------------------- | ------------------------------- |
-| **Organizations**       | Create OUs and accounts<br>Apply org policies                                                              | `ManagementOrganizationsStack`  |
-| **Identity Center**     | Users, groups, permission sets<br>Account assignments                                                      | `ManagementIdentityCenterStack` |
-| **Domains & DNS**       | Hosted zones<br>Cross-account DNS delegation                                                               | `DomainDelegationStack`         |
-| **Base Stack**          | Unified `BaseStack` with consistent naming, tagging, and environment validation                            | All stacks extend `BaseStack`   |
-| **Reusable Constructs** | L2/L3 constructs for ACM, CloudFront, Route 53, S3, Identity Center, Organizations, deployment permissions | Available in `src/constructs`   |
+| Component               | What You Get                                                                                               | Stacks                                                                   |
+| ----------------------- | ---------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
+| **Organizations**       | Create OUs and accounts<br>Apply org policies                                                              | `ManagementOrganizationsStack`                                           |
+| **Identity Center**     | Users, groups, permission sets<br>Account assignments                                                      | `ManagementIdentityCenterStack`                                          |
+| **Domains & DNS**       | Hosted zones<br>CloudFront distributions<br>ACM certificates<br>Cross-account DNS delegation               | `RootDomainStack`<br>`CloudFrontAndCertStack`<br>`DomainDelegationStack` |
+| **Base Stack**          | Unified `BaseStack` with consistent naming, tagging, and environment validation                            | All stacks extend `BaseStack`                                            |
+| **Reusable Constructs** | L2/L3 constructs for ACM, CloudFront, Route 53, S3, Identity Center, Organizations, deployment permissions | Available in `src/constructs`                                            |
 
 ## How It Works (Concepts)
 

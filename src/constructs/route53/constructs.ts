@@ -86,6 +86,11 @@ export class Route53HostedZoneConstruct extends NamedConstruct {
     super(scope, id, {
       ...props,
       resourceType: 'route53-hosted-zone',
+      // Pass domain name through customTags so it's available in getComponentName()
+      customTags: {
+        ...props.customTags,
+        DomainName: props.domainName,
+      },
     });
 
     this.domainName = props.domainName;
@@ -120,7 +125,9 @@ export class Route53HostedZoneConstruct extends NamedConstruct {
    * Get the component name for tagging
    */
   protected getComponentName(): string {
-    return `route53-${this.domainName.replace(/\./g, '-')}`;
+    // Use domainName if available, otherwise fall back to customTags (set during construction)
+    const domain = this.domainName || this.customTags?.['DomainName'] || 'unknown';
+    return `route53-${domain.replace(/\./g, '-')}`;
   }
 
   /**

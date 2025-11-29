@@ -95,11 +95,17 @@ export class CdkApplication extends cdk.App {
       });
 
       if (!result.success) {
-        throw new ApplicationInitError(
-          result.error || 'Failed to load manifest',
-          undefined,
-          manifestPath,
-        );
+        // Include detailed validation errors if available
+        let errorMessage = result.error || 'Failed to load manifest';
+        if (result.details && 'issues' in result.details) {
+          // Zod error - format the issues
+          const zodError = result.details as { issues: Array<{ path: string[]; message: string }> };
+          const issueMessages = zodError.issues
+            .map((issue) => `  - ${issue.path.join('.')}: ${issue.message}`)
+            .join('\n');
+          errorMessage += `\n\nValidation errors:\n${issueMessages}`;
+        }
+        throw new ApplicationInitError(errorMessage, result.details, manifestPath);
       }
 
       return {

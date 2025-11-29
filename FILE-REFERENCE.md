@@ -247,18 +247,28 @@ The application layer handles CDK application creation, configuration, and orche
 - Detects enabled components in manifest (organization, identityCenter, domains)
 - Creates appropriate stacks for each enabled component
 - Handles cross-account dependencies and stack ordering
+- For domains component, creates 4 stacks: RootDomain, CloudFrontAndCert (us-east-1), DnsRecords,
+  and DomainDelegation (if delegations configured)
 
 **Key Methods**:
 
 - `orchestrate()` - Main orchestration method that creates all necessary stacks
 - Component detection methods for each component type
 
+**Domain Stack Creation**:
+
+When `config.domains.enabled` is true, creates the following stacks in order:
+
+1. **RootDomainStack** - Creates Route53 hosted zones for registered domains
+2. **CloudFrontAndCertStack** - Creates ACM certificates and CloudFront distributions (us-east-1)
+3. **DnsRecordsStack** - Creates ALIAS records pointing to CloudFront distributions
+4. **DomainDelegationStack** - Creates NS delegation records (only if delegations are configured)
+
 #### `/src/application/orchestration/index.ts`
 
 **Purpose**: Barrel export for orchestration module.
 
 ---
-
 
 ## `/src/stacks` - Stack Implementations
 
@@ -347,19 +357,103 @@ Stacks for AWS IAM Identity Center (SSO) infrastructure.
 
 ### `/src/stacks/domains` - Domain Management Component
 
-Stacks for domain management and DNS delegation.
+Stacks for centralized multi-account domain management, including Route53 hosted zones, CloudFront
+distributions, and DNS records.
 
-#### `/src/stacks/domains/domain-delegation-stack.ts`
+#### `/src/stacks/domains/root-domain-stack.ts`
 
-**Purpose**: Stack for delegating Route53 hosted zones to other accounts.
+**Purpose**: Stack for managing Route53 hosted zones for all registered domains in the management
+account.
 
 **Key Features**:
 
-- Creates Route53 hosted zones
+- Creates or imports Route53 hosted zones for each registered domain
+- Exports hosted zone IDs for use by CloudFront and DNS stacks
+- Exports name servers for domain registrar configuration
+- Consistent naming and tagging for all domain resources
+
+**Key Class**: `RootDomainStack`
+
+**Key Exports**:
+
+- `{DomainName}HostedZoneId` - Hosted zone ID for cross-stack references
+- `{DomainName}NameServers` - Name servers for domain registrar
+- `{DomainName}ZoneName` - Zone name for reference
+
+**Deployment Frequency**: Rare (only when adding new domains)
+
+#### `/src/stacks/domains/cloudfront-cert-stack.ts`
+
+**Purpose**: Stack for managing ACM certificates (us-east-1) and CloudFront distributions for
+marketing and app domains using wildcard certificate optimization.
+
+**Key Features**:
+
+- Creates ACM certificates with DNS validation (must be in us-east-1 for CloudFront)
+- **Wildcard certificate optimization**: 2 certs per domain (wildcard + apex) instead of 1 per
+  subdomain
+  - Wildcard cert (`*.domain.com`) covers: www, app, api subdomains
+  - Apex cert (`domain.com`) covers: root domain
+  - Example: 5 domains = 10 certificates (vs 18 with individual certs)
+- Creates CloudFront distributions for marketing/app subdomains
+- Supports multiple origin types (S3, ALB cross-account, custom)
+- Exports distribution domain names for DNS stack
+- WAF integration support
+- Security best practices (TLS 1.2+, HTTP/2+3, IPv6)
+
+**Key Class**: `CloudFrontAndCertStack`
+
+**Key Exports**:
+
+- `{DomainName}WildcardCertificateArn` - Wildcard ACM certificate ARN (\*.domain.com)
+- `{DomainName}ApexCertificateArn` - Apex ACM certificate ARN (domain.com)
+- `{SubdomainName}DistributionDomain` - CloudFront distribution domain name
+- `{SubdomainName}DistributionId` - CloudFront distribution ID
+
+**Deployment Frequency**: Infrequent (when adding domains or changing CloudFront config)
+
+#### `/src/stacks/domains/dns-records-stack.ts`
+
+**Purpose**: Stack for creating DNS records (ALIAS records) in Route53 that point to CloudFront
+distributions or ALBs.
+
+**Key Features**:
+
+- Creates ALIAS records for CloudFront distributions
+- Creates ALIAS/CNAME records for cross-account ALBs
+- Supports apex domain records
+- Imports targets from CloudFront and ALB stacks
+- Consistent naming and tagging
+
+**Key Class**: `DnsRecordsStack`
+
+**Key Exports**:
+
+- `{SubdomainName}RecordCreated` - Confirmation of DNS record creation
+- `{SubdomainName}DnsRecord` - DNS record information
+
+**Dependencies**:
+
+- RootDomainStack (for hosted zones)
+- CloudFrontAndCertStack (for CloudFront distribution domains)
+- Workload ALB stacks (for ALB DNS names)
+
+**Deployment Frequency**: Frequent (whenever CloudFront or ALB endpoints change)
+
+#### `/src/stacks/domains/domain-delegation-stack.ts`
+
+**Purpose**: Stack for delegating Route53 subdomains to other accounts via NS records.
+
+**Key Features**:
+
+- Creates NS records in parent hosted zone
 - Delegates DNS management to target accounts
 - Manages cross-account DNS permissions
+- Custom resource for querying workload account hosted zones
 
 **Key Class**: `DomainDelegationStack`
+
+**Deployment Frequency**: Infrequent (when adding new delegations)
 
 #### `/src/stacks/domains/index.ts`
 

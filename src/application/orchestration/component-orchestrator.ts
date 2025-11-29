@@ -20,7 +20,7 @@
  * **What Gets Deployed Where:**
  * - organization → deployment.accountId (single stack)
  * - identityCenter → deployment.accountId (single stack)
- * - domains → deployment.accountId (single stack)
+ * - domains → deployment.accountId (4 stacks: RootDomain, CloudFrontAndCert, DnsRecords, DomainDelegation)
  * - networking → environments[*].accountId (one stack per environment)
  *
  * @example Single-account deployment
@@ -35,7 +35,13 @@
  * domains:
  *   enabled: true
  * ```
- * Creates 3 stacks in account 682475224767
+ * Creates 6 stacks in account 682475224767:
+ * - Organizations stack
+ * - Identity Center stack
+ * - RootDomain stack
+ * - CloudFrontAndCert stack (us-east-1)
+ * - DnsRecords stack
+ * - DomainDelegation stack (if delegations configured)
  *
  * @example Multi-environment deployment
  * ```yaml
@@ -73,9 +79,12 @@
  *   vpc:
  *     enabled: true
  * ```
- * Creates 4 stacks total:
+ * Creates 8 stacks total:
  * - Organizations stack in 682475224767
- * - Domains stack in 682475224767
+ * - RootDomain stack in 682475224767
+ * - CloudFrontAndCert stack in 682475224767 (us-east-1)
+ * - DnsRecords stack in 682475224767
+ * - DomainDelegation stack in 682475224767 (if delegations configured)
  * - VPC-nprd stack in 466279485605
  * - VPC-prod stack in 719640820326
  */
@@ -85,7 +94,12 @@ import type { UnifiedAppConfig } from '@codeiqlabs/aws-utils';
 import { BaseOrchestrator, OrchestrationError } from './base-orchestrator';
 import { ManagementOrganizationsStack } from '../../stacks/organizations/organizations-stack';
 import { ManagementIdentityCenterStack } from '../../stacks/identity-center/identity-center-stack';
-import { DomainDelegationStack } from '../../stacks/domains/domain-delegation-stack';
+import {
+  RootDomainStack,
+  CloudFrontAndCertStack,
+  DnsRecordsStack,
+  DomainDelegationStack,
+} from '../../stacks/domains';
 import { ResourceNaming } from '@codeiqlabs/aws-utils';
 
 /**
@@ -216,24 +230,82 @@ export class ComponentOrchestrator implements BaseOrchestrator {
       }
     }
 
-    // Create Domain Delegation stack if enabled
+    // Create Domain Management stacks if enabled
     if (config.domains?.enabled) {
+      const stackConfig = {
+        project: config.project,
+        environment: 'mgmt',
+        region: deploymentRegion,
+        accountId: deploymentAccountId,
+        owner: config.company,
+        company: config.company,
+      };
+
       try {
-        new DomainDelegationStack(app, naming.stackName('Domain-Delegation'), {
-          stackConfig: {
-            project: config.project,
-            environment: 'mgmt',
-            region: deploymentRegion,
-            accountId: deploymentAccountId,
-            owner: config.company,
-            company: config.company,
-          },
-          config: config as any, // TODO: Fix type after removing ManagementAppConfig
+        // 1. Create Root Domain Stack (hosted zones)
+        const rootDomainStack = new RootDomainStack(app, naming.stackName('RootDomain'), {
+          stackConfig,
+          config: config as any,
           env: primaryEnv,
         });
+
+        // 2. Create CloudFront and Certificate Stack (us-east-1)
+        // Note: This stack must be in us-east-1 for CloudFront certificates
+        const cloudFrontEnv = {
+          account: deploymentAccountId,
+          region: 'us-east-1', // CloudFront certificates must be in us-east-1
+        };
+
+        const cloudFrontStack = new CloudFrontAndCertStack(
+          app,
+          naming.stackName('CloudFrontAndCert'),
+          {
+            stackConfig: {
+              ...stackConfig,
+              region: 'us-east-1', // Override region for CloudFront certificates
+            },
+            config: config as any,
+            env: cloudFrontEnv,
+          },
+        );
+
+        // CloudFront stack depends on Root Domain stack (needs hosted zones)
+        cloudFrontStack.addDependency(rootDomainStack);
+
+        // 3. Create DNS Records Stack (ALIAS records)
+        const dnsRecordsStack = new DnsRecordsStack(app, naming.stackName('DnsRecords'), {
+          stackConfig,
+          config: config as any,
+          env: primaryEnv,
+        });
+
+        // DNS Records stack depends on both Root Domain and CloudFront stacks
+        dnsRecordsStack.addDependency(rootDomainStack);
+        dnsRecordsStack.addDependency(cloudFrontStack);
+
+        // 4. Create Domain Delegation Stack (NS records for cross-account delegation)
+        // Only create if there are delegations configured
+        const hasDelegations = (config.domains as any).registeredDomains?.some(
+          (domain: any) => domain.delegations?.length > 0,
+        );
+
+        if (hasDelegations) {
+          const delegationStack = new DomainDelegationStack(
+            app,
+            naming.stackName('DomainDelegation'),
+            {
+              stackConfig,
+              config: config as any,
+              env: primaryEnv,
+            },
+          );
+
+          // Delegation stack depends on Root Domain stack
+          delegationStack.addDependency(rootDomainStack);
+        }
       } catch (error) {
         throw new OrchestrationError(
-          'Failed to create Domain Delegation stack',
+          'Failed to create Domain Management stacks',
           'domains',
           error instanceof Error ? error : new Error(String(error)),
         );
