@@ -3,6 +3,7 @@
  */
 
 export * from './root-domain-stack';
-export * from './cloudfront-cert-stack';
 export * from './dns-records-stack';
 export * from './domain-delegation-stack';
+export * from './acm-waf-stack';
+export * from './cloudfront-distribution-stack';

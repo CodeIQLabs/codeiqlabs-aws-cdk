@@ -30,3 +30,6 @@ export * from './stacks';
 
 // Layer 4: Construct Layer (Individual AWS service constructs)
 export * from './constructs';
+
+// Layer 3: Stage Layer (Deployment stages)
+export * from './stages';

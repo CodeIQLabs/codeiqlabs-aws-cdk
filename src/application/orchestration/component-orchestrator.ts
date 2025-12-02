@@ -94,13 +94,16 @@ import type { UnifiedAppConfig } from '@codeiqlabs/aws-utils';
 import { BaseOrchestrator, OrchestrationError } from './base-orchestrator';
 import { ManagementOrganizationsStack } from '../../stacks/organizations/organizations-stack';
 import { ManagementIdentityCenterStack } from '../../stacks/identity-center/identity-center-stack';
+import { OriginDiscoveryReadRoleStack, GitHubOidcStack } from '../../stacks/customization';
 import {
-  RootDomainStack,
-  CloudFrontAndCertStack,
-  DnsRecordsStack,
-  DomainDelegationStack,
-} from '../../stacks/domains';
+  VpcStack,
+  EcsClusterStack,
+  EcsFargateServiceStack,
+  StaticWebAppStack,
+  SaasSecretsStack,
+} from '../../stacks/workload';
 import { ResourceNaming } from '@codeiqlabs/aws-utils';
+import { DomainFoundationStage, DomainWireupStage } from '../../stages/domains';
 
 /**
  * Unified component-based orchestrator
@@ -230,82 +233,27 @@ export class ComponentOrchestrator implements BaseOrchestrator {
       }
     }
 
-    // Create Domain Management stacks if enabled
+    // Create Domain Management stages if enabled
+    // Note: DomainWireupStage depends on DomainFoundationStage exports (certificates, WAF ACLs)
+    // but we do NOT add a CDK dependency between stages because:
+    // 1. CDK stages are independent deployment units
+    // 2. Cross-stage dependencies are not allowed in CDK
+    // 3. The deployment pipeline (GitHub Actions) should deploy stages in order
+    // 4. Fn.importValue handles runtime dependencies between stacks
     if (config.domains?.enabled) {
-      const stackConfig = {
-        project: config.project,
-        environment: 'mgmt',
-        region: deploymentRegion,
-        accountId: deploymentAccountId,
-        owner: config.company,
-        company: config.company,
-      };
-
       try {
-        // 1. Create Root Domain Stack (hosted zones)
-        const rootDomainStack = new RootDomainStack(app, naming.stackName('RootDomain'), {
-          stackConfig,
-          config: config as any,
+        new DomainFoundationStage(app, naming.stackName('DomainFoundationStage'), {
+          cfg: config,
           env: primaryEnv,
         });
 
-        // 2. Create CloudFront and Certificate Stack (us-east-1)
-        // Note: This stack must be in us-east-1 for CloudFront certificates
-        const cloudFrontEnv = {
-          account: deploymentAccountId,
-          region: 'us-east-1', // CloudFront certificates must be in us-east-1
-        };
-
-        const cloudFrontStack = new CloudFrontAndCertStack(
-          app,
-          naming.stackName('CloudFrontAndCert'),
-          {
-            stackConfig: {
-              ...stackConfig,
-              region: 'us-east-1', // Override region for CloudFront certificates
-            },
-            config: config as any,
-            env: cloudFrontEnv,
-          },
-        );
-
-        // CloudFront stack depends on Root Domain stack (needs hosted zones)
-        cloudFrontStack.addDependency(rootDomainStack);
-
-        // 3. Create DNS Records Stack (ALIAS records)
-        const dnsRecordsStack = new DnsRecordsStack(app, naming.stackName('DnsRecords'), {
-          stackConfig,
-          config: config as any,
+        new DomainWireupStage(app, naming.stackName('DomainWireupStage'), {
+          cfg: config,
           env: primaryEnv,
         });
-
-        // DNS Records stack depends on both Root Domain and CloudFront stacks
-        dnsRecordsStack.addDependency(rootDomainStack);
-        dnsRecordsStack.addDependency(cloudFrontStack);
-
-        // 4. Create Domain Delegation Stack (NS records for cross-account delegation)
-        // Only create if there are delegations configured
-        const hasDelegations = (config.domains as any).registeredDomains?.some(
-          (domain: any) => domain.delegations?.length > 0,
-        );
-
-        if (hasDelegations) {
-          const delegationStack = new DomainDelegationStack(
-            app,
-            naming.stackName('DomainDelegation'),
-            {
-              stackConfig,
-              config: config as any,
-              env: primaryEnv,
-            },
-          );
-
-          // Delegation stack depends on Root Domain stack
-          delegationStack.addDependency(rootDomainStack);
-        }
       } catch (error) {
         throw new OrchestrationError(
-          'Failed to create Domain Management stacks',
+          'Failed to create Domain Management stages',
           'domains',
           error instanceof Error ? error : new Error(String(error)),
         );
@@ -319,31 +267,314 @@ export class ComponentOrchestrator implements BaseOrchestrator {
 
     if (config.environments) {
       for (const [envName, envConfig] of Object.entries(config.environments)) {
-        // TODO: Uncomment when VpcStack is implemented
-        // const envEnv = {
-        //   account: envConfig.accountId,
-        //   region: envConfig.region,
-        // };
+        const envEnv = {
+          account: envConfig.accountId,
+          region: envConfig.region,
+        };
 
-        // TODO: Uncomment when VpcStack is implemented
-        // const envNaming = new ResourceNaming({
-        //   project: config.project,
-        //   environment: envName,
-        //   region: envConfig.region,
-        //   accountId: envConfig.accountId,
-        // });
+        const envNaming = new ResourceNaming({
+          project: config.project,
+          environment: envName,
+          region: envConfig.region,
+          accountId: envConfig.accountId,
+        });
+
+        const stackConfig = {
+          project: config.project,
+          environment: envName,
+          region: envConfig.region,
+          accountId: envConfig.accountId,
+          owner: config.company,
+          company: config.company,
+        };
+
+        // Track VPC stack for dependent stacks
+        let vpcStack: VpcStack | undefined;
 
         // Networking/VPC stack (if enabled)
         if (config.networking?.vpc?.enabled) {
           try {
-            // TODO: Create VpcStack when implemented
-            console.log(`Would create VPC stack for ${envName} in account ${envConfig.accountId}`);
+            vpcStack = new VpcStack(app, envNaming.stackName('VPC'), {
+              stackConfig,
+              vpcConfig: {
+                cidr: config.networking.vpc.cidr,
+                maxAzs: config.networking.vpc.maxAzs,
+                natGateways: config.networking.vpc.natGateways,
+                enableFlowLogs: config.networking.vpc.enableFlowLogs,
+                flowLogsRetentionDays: config.networking.vpc.flowLogsRetentionDays,
+              },
+              env: envEnv,
+            });
           } catch (error) {
             throw new OrchestrationError(
               `Failed to create VPC stack for environment ${envName}`,
               'networking',
               error instanceof Error ? error : new Error(String(error)),
             );
+          }
+        }
+
+        // ECS Cluster stack (if compute.ecs is enabled and VPC exists)
+        let ecsClusterStack: EcsClusterStack | undefined;
+        const computeConfig = (config as any).compute;
+        if (computeConfig?.ecs?.enabled && vpcStack) {
+          try {
+            ecsClusterStack = new EcsClusterStack(app, envNaming.stackName('ECS-Cluster'), {
+              stackConfig,
+              vpc: vpcStack.vpc,
+              clusterConfig: {
+                enableContainerInsights: true,
+              },
+              env: envEnv,
+            });
+            ecsClusterStack.addDependency(vpcStack);
+          } catch (error) {
+            throw new OrchestrationError(
+              `Failed to create ECS Cluster stack for environment ${envName}`,
+              'compute',
+              error instanceof Error ? error : new Error(String(error)),
+            );
+          }
+        }
+
+        // Marketing ECS Fargate Service stack (if enabled)
+        if (computeConfig?.ecs?.marketing?.enabled && vpcStack && ecsClusterStack) {
+          try {
+            const marketingConfig = computeConfig.ecs.marketing;
+            const marketingStack = new EcsFargateServiceStack(
+              app,
+              envNaming.stackName('Marketing'),
+              {
+                stackConfig,
+                vpc: vpcStack.vpc,
+                cluster: ecsClusterStack.cluster,
+                albSecurityGroup: vpcStack.albSecurityGroup,
+                ecsSecurityGroup: vpcStack.ecsSecurityGroup,
+                serviceConfig: {
+                  appKind: 'marketing',
+                  brands: marketingConfig.brands || [
+                    'codeiqlabs',
+                    'savvue',
+                    'timisly',
+                    'realtava',
+                    'equitrio',
+                  ],
+                  managementAccountId: computeConfig.ecs.managementAccountId || deploymentAccountId,
+                  certificateArn: computeConfig.ecs.certificateArn || '',
+                  defaultBrand: marketingConfig.defaultBrand || 'codeiqlabs',
+                  defaultContainerPort: marketingConfig.containerPort,
+                  defaultHealthCheckPath: marketingConfig.healthCheckPath,
+                  defaultDesiredCount: marketingConfig.desiredCount,
+                  defaultCpu: marketingConfig.cpu,
+                  defaultMemoryMiB: marketingConfig.memoryMiB,
+                },
+                env: envEnv,
+              },
+            );
+            marketingStack.addDependency(ecsClusterStack);
+          } catch (error) {
+            throw new OrchestrationError(
+              `Failed to create Marketing ECS stack for environment ${envName}`,
+              'compute',
+              error instanceof Error ? error : new Error(String(error)),
+            );
+          }
+        }
+
+        // API ECS Fargate Service stack (if enabled)
+        if (computeConfig?.ecs?.api?.enabled && vpcStack && ecsClusterStack) {
+          try {
+            const apiConfig = computeConfig.ecs.api;
+            const apiStack = new EcsFargateServiceStack(app, envNaming.stackName('API'), {
+              stackConfig,
+              vpc: vpcStack.vpc,
+              cluster: ecsClusterStack.cluster,
+              albSecurityGroup: vpcStack.albSecurityGroup,
+              ecsSecurityGroup: vpcStack.ecsSecurityGroup,
+              serviceConfig: {
+                appKind: 'api',
+                brands: ['api'], // Single API service
+                managementAccountId: computeConfig.ecs.managementAccountId || deploymentAccountId,
+                certificateArn: computeConfig.ecs.certificateArn || '',
+                defaultBrand: 'api',
+                defaultContainerPort: apiConfig.containerPort || 3000,
+                defaultHealthCheckPath: apiConfig.healthCheckPath || '/health',
+                defaultDesiredCount: apiConfig.desiredCount,
+                defaultCpu: apiConfig.cpu,
+                defaultMemoryMiB: apiConfig.memoryMiB,
+              },
+              env: envEnv,
+            });
+            apiStack.addDependency(ecsClusterStack);
+          } catch (error) {
+            throw new OrchestrationError(
+              `Failed to create API ECS stack for environment ${envName}`,
+              'compute',
+              error instanceof Error ? error : new Error(String(error)),
+            );
+          }
+        }
+
+        // Static Web App stack (if enabled)
+        const staticHostingConfig = (config as any).staticHosting;
+        if (staticHostingConfig?.enabled) {
+          try {
+            const webApps = staticHostingConfig.webApps || [];
+            const brands = webApps.map((app: { brand: string }) => app.brand);
+
+            if (brands.length > 0) {
+              new StaticWebAppStack(app, envNaming.stackName('WebApp'), {
+                stackConfig,
+                webAppConfig: {
+                  brands,
+                  managementAccountId:
+                    staticHostingConfig.managementAccountId || deploymentAccountId,
+                  enableVersioning: true,
+                },
+                env: envEnv,
+              });
+            }
+          } catch (error) {
+            throw new OrchestrationError(
+              `Failed to create Static Web App stack for environment ${envName}`,
+              'staticHosting',
+              error instanceof Error ? error : new Error(String(error)),
+            );
+          }
+        }
+
+        // Secrets stack (if enabled)
+        const secretsConfig = (config as any).secrets;
+        if (secretsConfig?.enabled) {
+          try {
+            new SaasSecretsStack(app, envNaming.stackName('Secrets'), {
+              stackConfig,
+              secretsConfig: {
+                recoveryWindowInDays: secretsConfig.recoveryWindowInDays ?? 7,
+                brands: secretsConfig.brands,
+                items: secretsConfig.items,
+              },
+              env: envEnv,
+            });
+          } catch (error) {
+            throw new OrchestrationError(
+              `Failed to create Secrets stack for environment ${envName}`,
+              'secrets',
+              error instanceof Error ? error : new Error(String(error)),
+            );
+          }
+        }
+      }
+    }
+
+    // ========================================================================
+    // ALB ORIGIN DISCOVERY COMPONENTS
+    // These deploy cross-account roles to workload accounts for ALB origin discovery
+    // ========================================================================
+
+    // Create Origin Discovery Read Role stacks if albOriginDiscovery is enabled
+    // These roles allow the Management account's Lambda to read SSM parameters
+    // from workload accounts for origin discovery (ALB DNS names)
+    const albOriginDiscovery = (config as any).albOriginDiscovery;
+    if (albOriginDiscovery?.enabled && albOriginDiscovery?.projects) {
+      // Get SSM parameter prefix from config or use default
+      const ssmParameterPrefix = albOriginDiscovery.ssmParameterPrefix || '/codeiqlabs/*';
+
+      // Create Origin Discovery Read Roles for each project's environments
+      for (const project of albOriginDiscovery.projects) {
+        if (project?.environments) {
+          for (const environment of project.environments) {
+            try {
+              const envNaming = new ResourceNaming({
+                project: project.name,
+                environment: environment.name,
+                region: environment.region,
+                accountId: environment.accountId,
+              });
+
+              new OriginDiscoveryReadRoleStack(app, envNaming.stackName('Origin-Discovery-Read'), {
+                stackConfig: {
+                  project: project.name,
+                  environment: environment.name,
+                  region: environment.region,
+                  accountId: environment.accountId,
+                  owner: config.company,
+                  company: config.company,
+                },
+                managementAccountId: deploymentAccountId,
+                ssmParameterPathPrefix: ssmParameterPrefix,
+                env: {
+                  account: environment.accountId,
+                  region: environment.region,
+                },
+              });
+            } catch (error) {
+              throw new OrchestrationError(
+                `Failed to create Origin Discovery Read Role stack for ${project.name}-${environment.name}`,
+                'albOriginDiscovery',
+                error instanceof Error ? error : new Error(String(error)),
+              );
+            }
+          }
+        }
+      }
+    }
+
+    // ========================================================================
+    // GITHUB OIDC COMPONENTS
+    // These deploy GitHub Actions OIDC roles to workload accounts for CI/CD
+    // ========================================================================
+
+    // Create GitHub OIDC stacks if githubOidc is enabled
+    // These roles allow GitHub Actions to authenticate via OIDC and deploy to AWS
+    const githubOidc = (config as any).githubOidc;
+    if (githubOidc?.enabled && githubOidc?.projects) {
+      for (const project of githubOidc.projects) {
+        if (project?.environments) {
+          for (const environment of project.environments) {
+            try {
+              const envNaming = new ResourceNaming({
+                project: project.name,
+                environment: environment.name,
+                region: environment.region,
+                accountId: environment.accountId,
+              });
+
+              // Build repository configurations
+              const repositories = (project.repositories || []).map(
+                (repo: { owner: string; repo: string; branch?: string; allowTags?: boolean }) => ({
+                  owner: repo.owner,
+                  repo: repo.repo,
+                  branch: repo.branch || 'main',
+                  allowTags: repo.allowTags !== false,
+                }),
+              );
+
+              new GitHubOidcStack(app, envNaming.stackName('GitHub-OIDC'), {
+                stackConfig: {
+                  project: project.name,
+                  environment: environment.name,
+                  region: environment.region,
+                  accountId: environment.accountId,
+                  owner: config.company,
+                  company: config.company,
+                },
+                repositories,
+                ecrRepositoryPrefix: project.ecrRepositoryPrefix || 'codeiqlabs-saas',
+                s3BucketPrefix: project.s3BucketPrefix || 'codeiqlabs-saas',
+                ecsClusterPrefix: project.ecsClusterPrefix || 'codeiqlabs-saas',
+                env: {
+                  account: environment.accountId,
+                  region: environment.region,
+                },
+              });
+            } catch (error) {
+              throw new OrchestrationError(
+                `Failed to create GitHub OIDC stack for ${project.name}-${environment.name}`,
+                'githubOidc',
+                error instanceof Error ? error : new Error(String(error)),
+              );
+            }
           }
         }
       }

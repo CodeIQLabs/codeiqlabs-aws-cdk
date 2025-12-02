@@ -16,6 +16,7 @@
  * - Organizations: AWS Organizations infrastructure
  * - Identity Center: AWS SSO infrastructure
  * - Domains: Domain management and delegation
+ * - Workload: VPC, ECS, ALB, S3 for workload accounts
  */
 
 // Base stack classes
@@ -25,3 +26,7 @@ export * from './base';
 export * from './organizations';
 export * from './identity-center';
 export * from './domains';
+export * from './customization';
+
+// Workload infrastructure stacks
+export * from './workload';
