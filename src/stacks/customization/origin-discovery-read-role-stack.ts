@@ -42,7 +42,7 @@ export class OriginDiscoveryReadRoleStack extends BaseStack {
   public readonly roleArn: string;
 
   constructor(scope: Construct, id: string, props: OriginDiscoveryReadRoleStackProps) {
-    super(scope, id, 'Origin-Discovery-Read', props);
+    super(scope, id, 'OriginDiscoveryRead', props);
 
     const { managementAccountId, ssmParameterPathPrefix = '/codeiqlabs/*' } = props;
 

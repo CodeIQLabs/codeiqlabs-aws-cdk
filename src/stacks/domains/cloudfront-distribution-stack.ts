@@ -49,7 +49,7 @@ export class CloudFrontDistributionStack extends BaseStack {
   private readonly distributions = new Map<string, Distribution>();
 
   constructor(scope: Construct, id: string, props: CloudFrontDistributionStackProps) {
-    super(scope, id, 'CloudFront-Distributions', props);
+    super(scope, id, 'CloudFrontDistributions', props);
 
     const domainConfig = (props.config as any).domains;
     if (!domainConfig?.enabled || !domainConfig.registeredDomains?.length) {

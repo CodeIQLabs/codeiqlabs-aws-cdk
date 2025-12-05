@@ -138,9 +138,15 @@ export class ComponentOrchestrator implements BaseOrchestrator {
     const deploymentAccountId = config.deployment.accountId;
     const deploymentRegion = config.deployment.region;
 
+    // Get naming configuration from manifest (required)
+    const namingConfig = config.naming;
+    const company = namingConfig.company;
+    const project = namingConfig.project;
+
     // Create resource naming utility
     const naming = new ResourceNaming({
-      project: config.project,
+      company,
+      project,
       environment: 'mgmt', // Management account environment is always 'mgmt'
       region: deploymentRegion,
       accountId: deploymentAccountId,
@@ -166,12 +172,12 @@ export class ComponentOrchestrator implements BaseOrchestrator {
           naming.stackName('Organizations'),
           {
             stackConfig: {
-              project: config.project,
+              project,
               environment: 'mgmt',
               region: deploymentRegion,
               accountId: deploymentAccountId,
-              owner: config.company,
-              company: config.company,
+              owner: company,
+              company,
             },
             config: config as any,
             orgRootId: config.organization.rootId,
@@ -211,14 +217,14 @@ export class ComponentOrchestrator implements BaseOrchestrator {
     // Create Identity Center stack if enabled
     if (config.identityCenter?.enabled) {
       try {
-        new ManagementIdentityCenterStack(app, naming.stackName('Identity-Center'), {
+        new ManagementIdentityCenterStack(app, naming.stackName('IdentityCenter'), {
           stackConfig: {
-            project: config.project,
+            project,
             environment: 'mgmt',
             region: deploymentRegion,
             accountId: deploymentAccountId,
-            owner: config.company,
-            company: config.company,
+            owner: company,
+            company,
           },
           config: config as any,
           accountIds, // Pass the account IDs map for assignment resolution
@@ -273,19 +279,20 @@ export class ComponentOrchestrator implements BaseOrchestrator {
         };
 
         const envNaming = new ResourceNaming({
-          project: config.project,
+          company,
+          project,
           environment: envName,
           region: envConfig.region,
           accountId: envConfig.accountId,
         });
 
         const stackConfig = {
-          project: config.project,
+          project,
           environment: envName,
           region: envConfig.region,
           accountId: envConfig.accountId,
-          owner: config.company,
-          company: config.company,
+          owner: company,
+          company,
         };
 
         // Track VPC stack for dependent stacks
@@ -319,7 +326,7 @@ export class ComponentOrchestrator implements BaseOrchestrator {
         const computeConfig = (config as any).compute;
         if (computeConfig?.ecs?.enabled && vpcStack) {
           try {
-            ecsClusterStack = new EcsClusterStack(app, envNaming.stackName('ECS-Cluster'), {
+            ecsClusterStack = new EcsClusterStack(app, envNaming.stackName('ECSCluster'), {
               stackConfig,
               vpc: vpcStack.vpc,
               clusterConfig: {
@@ -351,7 +358,7 @@ export class ComponentOrchestrator implements BaseOrchestrator {
                 albSecurityGroup: vpcStack.albSecurityGroup,
                 ecsSecurityGroup: vpcStack.ecsSecurityGroup,
                 serviceConfig: {
-                  appKind: 'marketing',
+                  appKind: 'Marketing',
                   brands: marketingConfig.brands || [
                     'codeiqlabs',
                     'savvue',
@@ -392,7 +399,7 @@ export class ComponentOrchestrator implements BaseOrchestrator {
               albSecurityGroup: vpcStack.albSecurityGroup,
               ecsSecurityGroup: vpcStack.ecsSecurityGroup,
               serviceConfig: {
-                appKind: 'api',
+                appKind: 'API',
                 brands: ['api'], // Single API service
                 managementAccountId: computeConfig.ecs.managementAccountId || deploymentAccountId,
                 certificateArn: computeConfig.ecs.certificateArn || '',
@@ -476,30 +483,33 @@ export class ComponentOrchestrator implements BaseOrchestrator {
     // These roles allow the Management account's Lambda to read SSM parameters
     // from workload accounts for origin discovery (ALB DNS names)
     const albOriginDiscovery = (config as any).albOriginDiscovery;
-    if (albOriginDiscovery?.enabled && albOriginDiscovery?.projects) {
+    const albTargets = albOriginDiscovery?.targets;
+    if (albOriginDiscovery?.enabled && albTargets) {
       // Get SSM parameter prefix from config or use default
       const ssmParameterPrefix = albOriginDiscovery.ssmParameterPrefix || '/codeiqlabs/*';
 
-      // Create Origin Discovery Read Roles for each project's environments
-      for (const project of albOriginDiscovery.projects) {
-        if (project?.environments) {
-          for (const environment of project.environments) {
+      // Create Origin Discovery Read Roles for each target project's environments
+      for (const target of albTargets) {
+        const targetProjectName = target.projectName;
+        if (target?.environments) {
+          for (const environment of target.environments) {
             try {
               const envNaming = new ResourceNaming({
-                project: project.name,
+                company,
+                project: targetProjectName,
                 environment: environment.name,
                 region: environment.region,
                 accountId: environment.accountId,
               });
 
-              new OriginDiscoveryReadRoleStack(app, envNaming.stackName('Origin-Discovery-Read'), {
+              new OriginDiscoveryReadRoleStack(app, envNaming.stackName('OriginDiscovery'), {
                 stackConfig: {
-                  project: project.name,
+                  project: targetProjectName,
                   environment: environment.name,
                   region: environment.region,
                   accountId: environment.accountId,
-                  owner: config.company,
-                  company: config.company,
+                  owner: company,
+                  company,
                 },
                 managementAccountId: deploymentAccountId,
                 ssmParameterPathPrefix: ssmParameterPrefix,
@@ -510,7 +520,7 @@ export class ComponentOrchestrator implements BaseOrchestrator {
               });
             } catch (error) {
               throw new OrchestrationError(
-                `Failed to create Origin Discovery Read Role stack for ${project.name}-${environment.name}`,
+                `Failed to create Origin Discovery Read Role stack for ${targetProjectName}-${environment.name}`,
                 'albOriginDiscovery',
                 error instanceof Error ? error : new Error(String(error)),
               );
@@ -528,20 +538,23 @@ export class ComponentOrchestrator implements BaseOrchestrator {
     // Create GitHub OIDC stacks if githubOidc is enabled
     // These roles allow GitHub Actions to authenticate via OIDC and deploy to AWS
     const githubOidc = (config as any).githubOidc;
-    if (githubOidc?.enabled && githubOidc?.projects) {
-      for (const project of githubOidc.projects) {
-        if (project?.environments) {
-          for (const environment of project.environments) {
+    const oidcTargets = githubOidc?.targets;
+    if (githubOidc?.enabled && oidcTargets) {
+      for (const target of oidcTargets) {
+        const targetProjectName = target.projectName;
+        if (target?.environments) {
+          for (const environment of target.environments) {
             try {
               const envNaming = new ResourceNaming({
-                project: project.name,
+                company,
+                project: targetProjectName,
                 environment: environment.name,
                 region: environment.region,
                 accountId: environment.accountId,
               });
 
               // Build repository configurations
-              const repositories = (project.repositories || []).map(
+              const repositories = (target.repositories || []).map(
                 (repo: { owner: string; repo: string; branch?: string; allowTags?: boolean }) => ({
                   owner: repo.owner,
                   repo: repo.repo,
@@ -550,19 +563,19 @@ export class ComponentOrchestrator implements BaseOrchestrator {
                 }),
               );
 
-              new GitHubOidcStack(app, envNaming.stackName('GitHub-OIDC'), {
+              new GitHubOidcStack(app, envNaming.stackName('GitHubOIDC'), {
                 stackConfig: {
-                  project: project.name,
+                  project: targetProjectName,
                   environment: environment.name,
                   region: environment.region,
                   accountId: environment.accountId,
-                  owner: config.company,
-                  company: config.company,
+                  owner: company,
+                  company,
                 },
                 repositories,
-                ecrRepositoryPrefix: project.ecrRepositoryPrefix || 'codeiqlabs-saas',
-                s3BucketPrefix: project.s3BucketPrefix || 'codeiqlabs-saas',
-                ecsClusterPrefix: project.ecsClusterPrefix || 'codeiqlabs-saas',
+                ecrRepositoryPrefix: target.ecrRepositoryPrefix || 'codeiqlabs-saas',
+                s3BucketPrefix: target.s3BucketPrefix || 'codeiqlabs-saas',
+                ecsClusterPrefix: target.ecsClusterPrefix || 'codeiqlabs-saas',
                 env: {
                   account: environment.accountId,
                   region: environment.region,
@@ -570,7 +583,7 @@ export class ComponentOrchestrator implements BaseOrchestrator {
               });
             } catch (error) {
               throw new OrchestrationError(
-                `Failed to create GitHub OIDC stack for ${project.name}-${environment.name}`,
+                `Failed to create GitHub OIDC stack for ${targetProjectName}-${environment.name}`,
                 'githubOidc',
                 error instanceof Error ? error : new Error(String(error)),
               );

@@ -68,7 +68,7 @@ export class EcsClusterStack extends BaseStack {
   public readonly cluster: ecs.ICluster;
 
   constructor(scope: Construct, id: string, props: EcsClusterStackProps) {
-    super(scope, id, 'ECS-Cluster', props);
+    super(scope, id, 'ECSCluster', props);
 
     const config = props.clusterConfig ?? {};
     const enableContainerInsights = config.enableContainerInsights ?? true;

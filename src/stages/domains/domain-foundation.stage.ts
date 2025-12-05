@@ -27,12 +27,12 @@ export class DomainFoundationStage extends cdk.Stage {
     const deploymentRegion = cfg.deployment.region;
 
     const stackConfig = {
-      project: cfg.project,
+      project: cfg.naming.project,
       environment: 'mgmt',
       region: deploymentRegion,
       accountId: deploymentAccountId,
-      owner: cfg.company,
-      company: cfg.company,
+      owner: cfg.naming.company,
+      company: cfg.naming.company,
     };
 
     const primaryEnv = {

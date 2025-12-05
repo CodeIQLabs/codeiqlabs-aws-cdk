@@ -53,7 +53,7 @@ export class ManagementIdentityCenterStack extends BaseStack {
   public readonly identityCenter: IdentityCenterConstruct;
 
   constructor(scope: Construct, id: string, props: ManagementIdentityCenterStackProps) {
-    super(scope, id, 'Identity-Center', props);
+    super(scope, id, 'IdentityCenter', props);
 
     const { identityCenter } = props.config;
 
@@ -82,7 +82,7 @@ export class ManagementIdentityCenterStack extends BaseStack {
       assignments: identityCenter.assignments,
       accountIds: props.accountIds,
       owner: identityCenter.tags.Owner,
-      company: props.config.company,
+      company: props.config.naming.company,
     });
   }
 

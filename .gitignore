@@ -53,3 +53,5 @@ tmp/
 temp/
 
 *.js
+*.iml
+.augment

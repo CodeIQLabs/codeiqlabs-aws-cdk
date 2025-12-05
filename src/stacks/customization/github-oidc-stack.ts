@@ -50,7 +50,7 @@ export class GitHubOidcStack extends BaseStack {
   public readonly roleArn: string;
 
   constructor(scope: Construct, id: string, props: GitHubOidcStackProps) {
-    super(scope, id, 'GitHub-OIDC', props);
+    super(scope, id, 'GitHubOIDC', props);
 
     const {
       repositories,
