@@ -20,11 +20,20 @@ export interface GitHubRepositoryConfig {
 export interface GitHubOidcStackProps extends BaseStackProps {
   /** List of GitHub repositories that can assume the role */
   repositories: GitHubRepositoryConfig[];
-  /** ECR repository name prefix for push permissions (e.g., 'codeiqlabs-saas') */
+  /**
+   * ECR repository name prefix for push permissions
+   * If not provided, derived from {company}-{project} pattern
+   */
   ecrRepositoryPrefix?: string;
-  /** S3 bucket name prefix for webapp deployment (e.g., 'codeiqlabs-saas') */
+  /**
+   * S3 bucket name prefix for webapp deployment
+   * If not provided, derived from {company}-{project} pattern
+   */
   s3BucketPrefix?: string;
-  /** ECS cluster name prefix for service updates (e.g., 'codeiqlabs-saas') */
+  /**
+   * ECS cluster name prefix for service updates
+   * If not provided, derived from {company}-{project} pattern
+   */
   ecsClusterPrefix?: string;
 }
 
@@ -52,15 +61,17 @@ export class GitHubOidcStack extends BaseStack {
   constructor(scope: Construct, id: string, props: GitHubOidcStackProps) {
     super(scope, id, 'GitHubOIDC', props);
 
-    const {
-      repositories,
-      ecrRepositoryPrefix = 'codeiqlabs-saas',
-      s3BucketPrefix = 'codeiqlabs-saas',
-      ecsClusterPrefix = 'codeiqlabs-saas',
-    } = props;
+    const { repositories } = props;
 
     const accountId = cdk.Stack.of(this).account;
     const region = cdk.Stack.of(this).region;
+
+    // Derive default prefix from company-project pattern (no hardcoded defaults)
+    const stackConfig = this.getStackConfig();
+    const defaultPrefix = `${stackConfig.company}-${stackConfig.project}`.toLowerCase();
+    const ecrRepositoryPrefix = props.ecrRepositoryPrefix || defaultPrefix;
+    const s3BucketPrefix = props.s3BucketPrefix || defaultPrefix;
+    const ecsClusterPrefix = props.ecsClusterPrefix || defaultPrefix;
 
     // GitHub OIDC provider thumbprint (GitHub's certificate thumbprint)
     const githubOidcThumbprint = '6938fd4d98bab03faadb97b34396831e3780aea1';
@@ -222,12 +233,16 @@ export class GitHubOidcStack extends BaseStack {
   }
 
   private addSsmPermissions(): void {
+    // Derive SSM parameter prefix from company name (no hardcoded paths)
+    const company = this.getStackConfig().company.toLowerCase();
+    const ssmParameterPrefix = `/${company}/*`;
+
     this.role.addToPolicy(
       new iam.PolicyStatement({
         sid: 'SSMReadParameters',
         effect: iam.Effect.ALLOW,
         actions: ['ssm:GetParameter', 'ssm:GetParameters', 'ssm:GetParametersByPath'],
-        resources: ['arn:aws:ssm:*:' + cdk.Stack.of(this).account + ':parameter/codeiqlabs/*'],
+        resources: [`arn:aws:ssm:*:${cdk.Stack.of(this).account}:parameter${ssmParameterPrefix}`],
       }),
     );
   }

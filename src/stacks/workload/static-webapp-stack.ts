@@ -14,16 +14,15 @@
  * ```typescript
  * new StaticWebAppStack(app, 'WebApp', {
  *   stackConfig: {
- *     project: 'CodeIQLabs-SaaS',
+ *     project: 'MyProject',
  *     environment: 'nprd',
  *     region: 'us-east-1',
- *     accountId: '466279485605',
- *     owner: 'CodeIQLabs',
- *     company: 'CodeIQLabs',
+ *     accountId: '123456789012',
+ *     owner: 'MyCompany',
+ *     company: 'MyCompany',
  *   },
  *   webAppConfig: {
- *     brands: ['savvue', 'timisly', 'realtava', 'equitrio'],
- *     managementAccountId: '682475224767',
+ *     brands: ['acme', 'globex', 'initech'],
  *   },
  * });
  * ```
@@ -129,8 +128,8 @@ export class StaticWebAppStack extends BaseStack {
       );
 
       // Create SSM parameter for bucket info (for cross-account CloudFront configuration)
-      // Naming convention: /codeiqlabs/saas/{env}/webapp/{brand}/bucket-name
-      const ssmParameterPath = `/codeiqlabs/saas/${this.getStackConfig().environment}/webapp/${brand}/bucket-name`;
+      // Pattern: /{company}/{project}/{env}/webapp/{brand}/bucket-name (derived from manifest)
+      const ssmParameterPath = this.naming.ssmParameterName(`webapp/${brand}`, 'bucket-name');
       const bucketParameter = new ssm.StringParameter(this, `${brand}BucketParameter`, {
         parameterName: ssmParameterPath,
         stringValue: bucket.bucketName,
@@ -140,7 +139,8 @@ export class StaticWebAppStack extends BaseStack {
       this.bucketParameters.set(brand, bucketParameter);
 
       // Also store bucket regional domain name for CloudFront origin
-      const domainParameterPath = `/codeiqlabs/saas/${this.getStackConfig().environment}/webapp/${brand}/bucket-domain`;
+      // Pattern: /{company}/{project}/{env}/webapp/{brand}/bucket-domain (derived from manifest)
+      const domainParameterPath = this.naming.ssmParameterName(`webapp/${brand}`, 'bucket-domain');
       new ssm.StringParameter(this, `${brand}BucketDomainParameter`, {
         parameterName: domainParameterPath,
         stringValue: bucket.bucketRegionalDomainName,

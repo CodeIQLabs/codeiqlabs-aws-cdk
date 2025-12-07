@@ -31,7 +31,7 @@ export class DomainFoundationStage extends cdk.Stage {
       environment: 'mgmt',
       region: deploymentRegion,
       accountId: deploymentAccountId,
-      owner: cfg.naming.company,
+      owner: cfg.naming.owner || cfg.naming.company,
       company: cfg.naming.company,
     };
 

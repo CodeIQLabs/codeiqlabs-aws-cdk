@@ -37,7 +37,7 @@ interface SubdomainConfig {
  * Uses a placeholder origin until ALBs are deployed in workload accounts.
  *
  * Architecture:
- * - 5 distributions (one per brand: savvue, timisly, realtava, equitrio, codeiqlabs)
+ * - N distributions (one per brand defined in manifest)
  * - Each distribution has multiple alternate domain names (apex, www, app, api, nprd.*)
  * - Uses placeholder origin (will be updated when ALBs are deployed)
  *

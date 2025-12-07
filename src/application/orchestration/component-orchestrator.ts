@@ -106,6 +106,46 @@ import { ResourceNaming } from '@codeiqlabs/aws-utils';
 import { DomainFoundationStage, DomainWireupStage } from '../../stages/domains';
 
 /**
+ * Known acronyms that should remain uppercase in component names
+ */
+const KNOWN_ACRONYMS = [
+  'api',
+  'vpc',
+  'ecs',
+  'ecr',
+  'alb',
+  'rds',
+  'ssm',
+  'iam',
+  'acm',
+  'waf',
+  'cdn',
+];
+
+/**
+ * Convert service name to PascalCase component name
+ * Handles acronyms specially (api -> API, vpc -> VPC)
+ *
+ * @example
+ * toComponentName('frontend') // 'Frontend'
+ * toComponentName('api') // 'API'
+ * toComponentName('admin-portal') // 'AdminPortal'
+ * toComponentName('my-api-service') // 'MyAPIService'
+ */
+function toComponentName(serviceName: string): string {
+  return serviceName
+    .split('-')
+    .map((segment) => {
+      const lower = segment.toLowerCase();
+      if (KNOWN_ACRONYMS.includes(lower)) {
+        return segment.toUpperCase();
+      }
+      return segment.charAt(0).toUpperCase() + segment.slice(1).toLowerCase();
+    })
+    .join('');
+}
+
+/**
  * Unified component-based orchestrator
  *
  * This class detects enabled components in the manifest and creates the appropriate
@@ -142,6 +182,8 @@ export class ComponentOrchestrator implements BaseOrchestrator {
     const namingConfig = config.naming;
     const company = namingConfig.company;
     const project = namingConfig.project;
+    // Owner defaults to company if not specified in manifest
+    const owner = namingConfig.owner || company;
 
     // Create resource naming utility
     const naming = new ResourceNaming({
@@ -176,7 +218,7 @@ export class ComponentOrchestrator implements BaseOrchestrator {
               environment: 'mgmt',
               region: deploymentRegion,
               accountId: deploymentAccountId,
-              owner: company,
+              owner,
               company,
             },
             config: config as any,
@@ -223,7 +265,7 @@ export class ComponentOrchestrator implements BaseOrchestrator {
             environment: 'mgmt',
             region: deploymentRegion,
             accountId: deploymentAccountId,
-            owner: company,
+            owner,
             company,
           },
           config: config as any,
@@ -291,7 +333,7 @@ export class ComponentOrchestrator implements BaseOrchestrator {
           environment: envName,
           region: envConfig.region,
           accountId: envConfig.accountId,
-          owner: company,
+          owner,
           company,
         };
 
@@ -344,81 +386,58 @@ export class ComponentOrchestrator implements BaseOrchestrator {
           }
         }
 
-        // Marketing ECS Fargate Service stack (if enabled)
-        if (computeConfig?.ecs?.marketing?.enabled && vpcStack && ecsClusterStack) {
-          try {
-            const marketingConfig = computeConfig.ecs.marketing;
-            const marketingStack = new EcsFargateServiceStack(
-              app,
-              envNaming.stackName('Marketing'),
-              {
-                stackConfig,
-                vpc: vpcStack.vpc,
-                cluster: ecsClusterStack.cluster,
-                albSecurityGroup: vpcStack.albSecurityGroup,
-                ecsSecurityGroup: vpcStack.ecsSecurityGroup,
-                serviceConfig: {
-                  appKind: 'Marketing',
-                  brands: marketingConfig.brands || [
-                    'codeiqlabs',
-                    'savvue',
-                    'timisly',
-                    'realtava',
-                    'equitrio',
-                  ],
-                  managementAccountId: computeConfig.ecs.managementAccountId || deploymentAccountId,
-                  certificateArn: computeConfig.ecs.certificateArn || '',
-                  defaultBrand: marketingConfig.defaultBrand || 'codeiqlabs',
-                  defaultContainerPort: marketingConfig.containerPort,
-                  defaultHealthCheckPath: marketingConfig.healthCheckPath,
-                  defaultDesiredCount: marketingConfig.desiredCount,
-                  defaultCpu: marketingConfig.cpu,
-                  defaultMemoryMiB: marketingConfig.memoryMiB,
-                },
-                env: envEnv,
-              },
-            );
-            marketingStack.addDependency(ecsClusterStack);
-          } catch (error) {
-            throw new OrchestrationError(
-              `Failed to create Marketing ECS stack for environment ${envName}`,
-              'compute',
-              error instanceof Error ? error : new Error(String(error)),
-            );
-          }
-        }
+        // ECS Fargate Service stacks for each service in the services array
+        const ecsConfig = computeConfig?.ecs;
+        if (ecsConfig?.enabled && ecsConfig?.services && vpcStack && ecsClusterStack) {
+          for (const service of ecsConfig.services) {
+            // Skip disabled services
+            if (!service.enabled) continue;
 
-        // API ECS Fargate Service stack (if enabled)
-        if (computeConfig?.ecs?.api?.enabled && vpcStack && ecsClusterStack) {
-          try {
-            const apiConfig = computeConfig.ecs.api;
-            const apiStack = new EcsFargateServiceStack(app, envNaming.stackName('API'), {
-              stackConfig,
-              vpc: vpcStack.vpc,
-              cluster: ecsClusterStack.cluster,
-              albSecurityGroup: vpcStack.albSecurityGroup,
-              ecsSecurityGroup: vpcStack.ecsSecurityGroup,
-              serviceConfig: {
-                appKind: 'API',
-                brands: ['api'], // Single API service
-                managementAccountId: computeConfig.ecs.managementAccountId || deploymentAccountId,
-                certificateArn: computeConfig.ecs.certificateArn || '',
-                defaultBrand: 'api',
-                defaultContainerPort: apiConfig.containerPort || 3000,
-                defaultHealthCheckPath: apiConfig.healthCheckPath || '/health',
-                defaultDesiredCount: apiConfig.desiredCount,
-                defaultCpu: apiConfig.cpu,
-                defaultMemoryMiB: apiConfig.memoryMiB,
-              },
-              env: envEnv,
-            });
-            apiStack.addDependency(ecsClusterStack);
-          } catch (error) {
-            throw new OrchestrationError(
-              `Failed to create API ECS stack for environment ${envName}`,
-              'compute',
-              error instanceof Error ? error : new Error(String(error)),
-            );
+            // Skip worker services (no ALB needed - they run as background tasks)
+            if (service.type === 'worker') continue;
+
+            try {
+              const componentName = toComponentName(service.name);
+
+              // Determine brands based on service type:
+              // - 'web' services: use explicit brands array (schema-validated to be non-empty)
+              // - 'api' services: use service name as single-item array
+              const serviceBrands =
+                service.type === 'web'
+                  ? service.brands! // Schema ensures this exists for 'web' type
+                  : [service.name]; // Single-service: use service name as identifier
+
+              const serviceStack = new EcsFargateServiceStack(
+                app,
+                envNaming.stackName(componentName),
+                {
+                  stackConfig,
+                  vpc: vpcStack.vpc,
+                  cluster: ecsClusterStack.cluster,
+                  albSecurityGroup: vpcStack.albSecurityGroup,
+                  ecsSecurityGroup: vpcStack.ecsSecurityGroup,
+                  serviceConfig: {
+                    appKind: service.name,
+                    brands: serviceBrands,
+                    certificateArn: ecsConfig.certificateArn || '',
+                    // defaultBrand is derived from brands[0] in the stack
+                    defaultContainerPort: service.containerPort,
+                    defaultHealthCheckPath: service.healthCheckPath,
+                    defaultDesiredCount: service.desiredCount,
+                    defaultCpu: service.cpu,
+                    defaultMemoryMiB: service.memoryMiB,
+                  },
+                  env: envEnv,
+                },
+              );
+              serviceStack.addDependency(ecsClusterStack);
+            } catch (error) {
+              throw new OrchestrationError(
+                `Failed to create ${service.name} ECS stack for environment ${envName}`,
+                'compute',
+                error instanceof Error ? error : new Error(String(error)),
+              );
+            }
           }
         }
 
@@ -485,8 +504,10 @@ export class ComponentOrchestrator implements BaseOrchestrator {
     const albOriginDiscovery = (config as any).albOriginDiscovery;
     const albTargets = albOriginDiscovery?.targets;
     if (albOriginDiscovery?.enabled && albTargets) {
-      // Get SSM parameter prefix from config or use default
-      const ssmParameterPrefix = albOriginDiscovery.ssmParameterPrefix || '/codeiqlabs/*';
+      // Get SSM parameter prefix from config or derive from company name
+      // Pattern: /{company}/* - allows reading all SSM parameters under the company namespace
+      const defaultSsmPrefix = `/${company.toLowerCase()}/*`;
+      const ssmParameterPrefix = albOriginDiscovery.ssmParameterPrefix || defaultSsmPrefix;
 
       // Create Origin Discovery Read Roles for each target project's environments
       for (const target of albTargets) {
@@ -508,7 +529,7 @@ export class ComponentOrchestrator implements BaseOrchestrator {
                   environment: environment.name,
                   region: environment.region,
                   accountId: environment.accountId,
-                  owner: company,
+                  owner,
                   company,
                 },
                 managementAccountId: deploymentAccountId,
@@ -563,19 +584,20 @@ export class ComponentOrchestrator implements BaseOrchestrator {
                 }),
               );
 
+              // Prefixes are optional - GitHubOidcStack derives defaults from stackConfig
               new GitHubOidcStack(app, envNaming.stackName('GitHubOIDC'), {
                 stackConfig: {
                   project: targetProjectName,
                   environment: environment.name,
                   region: environment.region,
                   accountId: environment.accountId,
-                  owner: company,
+                  owner,
                   company,
                 },
                 repositories,
-                ecrRepositoryPrefix: target.ecrRepositoryPrefix || 'codeiqlabs-saas',
-                s3BucketPrefix: target.s3BucketPrefix || 'codeiqlabs-saas',
-                ecsClusterPrefix: target.ecsClusterPrefix || 'codeiqlabs-saas',
+                ecrRepositoryPrefix: target.ecrRepositoryPrefix,
+                s3BucketPrefix: target.s3BucketPrefix,
+                ecsClusterPrefix: target.ecsClusterPrefix,
                 env: {
                   account: environment.accountId,
                   region: environment.region,

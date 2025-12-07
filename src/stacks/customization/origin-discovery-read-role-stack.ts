@@ -6,7 +6,7 @@ import * as iam from 'aws-cdk-lib/aws-iam';
 export interface OriginDiscoveryReadRoleStackProps extends BaseStackProps {
   /** Management account ID (for IAM trust policy) */
   managementAccountId: string;
-  /** SSM parameter path prefix to allow reading (default: /codeiqlabs/*) */
+  /** SSM parameter path prefix to allow reading (derived from company name if not specified) */
   ssmParameterPathPrefix?: string;
 }
 
@@ -24,12 +24,14 @@ export interface OriginDiscoveryReadRoleStackProps extends BaseStackProps {
  * Trust Policy: Allows the Management account to assume this role
  * Permissions: ssm:GetParameter on the specified SSM parameter path prefix
  *
+ * SSM Parameter Path Pattern: /{company}/* (derived from manifest)
+ *
  * @example
  * ```typescript
  * new OriginDiscoveryReadRoleStack(app, 'OriginDiscoveryReadRole', {
  *   stackConfig: { ... },
  *   managementAccountId: '682475224767',
- *   ssmParameterPathPrefix: '/codeiqlabs/*',
+ *   // ssmParameterPathPrefix defaults to /{company}/* based on stackConfig.company
  *   env: { account: '466279485605', region: 'us-east-1' },
  * });
  * ```
@@ -44,7 +46,9 @@ export class OriginDiscoveryReadRoleStack extends BaseStack {
   constructor(scope: Construct, id: string, props: OriginDiscoveryReadRoleStackProps) {
     super(scope, id, 'OriginDiscoveryRead', props);
 
-    const { managementAccountId, ssmParameterPathPrefix = '/codeiqlabs/*' } = props;
+    // Derive default SSM prefix from company name in stack config
+    const defaultSsmPrefix = `/${props.stackConfig.company.toLowerCase()}/*`;
+    const { managementAccountId, ssmParameterPathPrefix = defaultSsmPrefix } = props;
 
     // Create the IAM role with trust policy for Management account
     this.role = new iam.Role(this, 'OriginDiscoveryReadRole', {

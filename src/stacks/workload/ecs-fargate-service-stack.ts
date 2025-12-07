@@ -2,34 +2,33 @@
  * ECS Fargate Service Stack for Workload Infrastructure
  *
  * Creates a shared ALB with path-based routing for multiple brand services.
- * Each brand's marketing site runs as a separate ECS Fargate service behind the shared ALB.
+ * Each brand runs as a separate ECS Fargate service behind the shared ALB.
  *
  * Architecture:
  * - Shared ALB with HTTPS listener (references cross-account ACM certificate)
- * - Path-based routing: /savvue/* → Savvue service, /timisly/* → Timisly service, etc.
- * - Default route goes to CodeIQLabs umbrella brand
+ * - Path-based routing: /brand1/* → Brand1 service, /brand2/* → Brand2 service, etc.
+ * - Default route (/*) goes to the first brand in the array
  * - SSM parameter exports ALB DNS for cross-account CloudFront origin discovery
  *
  * @example
  * ```typescript
- * new EcsFargateServiceStack(app, 'Marketing', {
+ * new EcsFargateServiceStack(app, 'Frontend', {
  *   stackConfig: {
- *     project: 'CodeIQLabs-SaaS',
+ *     project: 'MyProject',
  *     environment: 'nprd',
  *     region: 'us-east-1',
- *     accountId: '466279485605',
- *     owner: 'CodeIQLabs',
- *     company: 'CodeIQLabs',
+ *     accountId: '123456789012',
+ *     owner: 'MyCompany',
+ *     company: 'MyCompany',
  *   },
  *   vpc: vpcStack.vpc,
  *   cluster: clusterStack.cluster,
  *   albSecurityGroup: vpcStack.albSecurityGroup,
  *   ecsSecurityGroup: vpcStack.ecsSecurityGroup,
  *   serviceConfig: {
- *     appKind: 'marketing',
- *     brands: ['codeiqlabs', 'savvue', 'timisly', 'realtava', 'equitrio'],
- *     managementAccountId: '682475224767',
- *     certificateArn: 'arn:aws:acm:us-east-1:682475224767:certificate/xxx',
+ *     appKind: 'frontend',
+ *     brands: ['acme', 'globex', 'initech'],  // First brand (acme) is the default
+ *     certificateArn: 'arn:aws:acm:us-east-1:123456789012:certificate/xxx',
  *   },
  * });
  * ```
@@ -53,12 +52,12 @@ import { BaseStack, BaseStackProps } from '../base';
  */
 export interface BrandServiceConfig {
   /**
-   * Brand name (e.g., 'savvue', 'timisly')
+   * Brand name (e.g., 'acme', 'globex')
    */
   brand: string;
 
   /**
-   * Path pattern for routing (e.g., '/savvue/*')
+   * Path pattern for routing (e.g., '/acme/*')
    * If not specified, defaults to '/{brand}/*'
    */
   pathPattern?: string;
@@ -105,8 +104,9 @@ export interface BrandServiceConfig {
  */
 export interface EcsFargateServiceConfig {
   /**
-   * Application kind (e.g., 'marketing', 'api')
-   * Used for SSM parameter naming: /codeiqlabs/saas/{env}/{appKind}/alb-dns
+   * Application kind - the service name from manifest (e.g., 'frontend', 'api')
+   * Used for SSM parameter naming: /{company}/{project}/{env}/{appKind}/alb-dns
+   * This value comes from services[].name in the manifest
    */
   appKind: string;
 
@@ -117,22 +117,11 @@ export interface EcsFargateServiceConfig {
   brands: string[];
 
   /**
-   * Management account ID for cross-account certificate reference
-   */
-  managementAccountId: string;
-
-  /**
-   * ACM certificate ARN from Management account
+   * ACM certificate ARN for ALB HTTPS
    * Must be in the same region as the ALB
    * If not provided, ALB will use HTTP only (suitable when CloudFront handles SSL)
    */
   certificateArn?: string;
-
-  /**
-   * Default brand for the root path
-   * @default 'codeiqlabs'
-   */
-  defaultBrand?: string;
 
   /**
    * Per-brand configuration overrides
@@ -280,7 +269,8 @@ export class EcsFargateServiceStack extends BaseStack {
     const defaultCpu = config.defaultCpu ?? 256;
     const defaultMemoryMiB = config.defaultMemoryMiB ?? 512;
     const logRetentionDays = config.logRetentionDays ?? 30;
-    const defaultBrand = config.defaultBrand ?? 'codeiqlabs';
+    // First brand in the array is always the default (for root path routing)
+    const defaultBrand = config.brands[0];
 
     // Create Application Load Balancer
     // ALB names have a 32 character limit, so we use a shorter naming pattern
@@ -532,8 +522,8 @@ export class EcsFargateServiceStack extends BaseStack {
     }
 
     // Create SSM parameter for ALB DNS (for cross-account CloudFront origin discovery)
-    // Naming convention: /codeiqlabs/saas/{env}/{appKind}/alb-dns
-    const ssmParameterPath = `/codeiqlabs/saas/${this.getStackConfig().environment}/${config.appKind}/alb-dns`;
+    // Pattern: /{company}/{project}/{env}/{appKind}/alb-dns (derived from manifest)
+    const ssmParameterPath = this.naming.ssmParameterName(config.appKind, 'alb-dns');
     this.albDnsParameter = new ssm.StringParameter(this, 'AlbDnsParameter', {
       parameterName: ssmParameterPath,
       stringValue: this.alb.loadBalancerDnsName,
