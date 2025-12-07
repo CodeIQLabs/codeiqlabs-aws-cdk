@@ -163,6 +163,7 @@ export abstract class BaseStack extends cdk.Stack {
       environment: stackConfig.environment,
       region: stackConfig.region,
       accountId: stackConfig.accountId,
+      company: stackConfig.company,
     });
 
     // Generate standardized stack name
