@@ -183,6 +183,12 @@ export interface EcsSecretsConfig {
   databaseUrlSecretArn?: string;
 
   /**
+   * Map of database URL secrets keyed by identifier (e.g., core, brand)
+   * Injected as DATABASE_URL_{KEY.toUpperCase()}
+   */
+  databaseUrlSecretArns?: Record<string, string>;
+
+  /**
    * Stripe secret key secret ARN
    * Injected as STRIPE_SECRET_KEY environment variable
    */
@@ -272,6 +278,13 @@ export class EcsFargateServiceStack extends BaseStack {
     // First brand in the array is always the default (for root path routing)
     const defaultBrand = config.brands[0];
 
+    const secretFromArn = (id: string, secretArn: string, field?: string) => {
+      const secret = secretsmanager.Secret.fromSecretCompleteArn(this, id, secretArn);
+      return field
+        ? ecs.Secret.fromSecretsManager(secret, field)
+        : ecs.Secret.fromSecretsManager(secret);
+    };
+
     // Create Application Load Balancer
     // ALB names have a 32 character limit, so we use a shorter naming pattern
     // Pattern: {env}-{appKind}-alb (e.g., "nprd-marketing-alb")
@@ -342,6 +355,9 @@ export class EcsFargateServiceStack extends BaseStack {
     if (secretsConfig) {
       const secretArns: string[] = [];
       if (secretsConfig.databaseUrlSecretArn) secretArns.push(secretsConfig.databaseUrlSecretArn);
+      if (secretsConfig.databaseUrlSecretArns) {
+        secretArns.push(...Object.values(secretsConfig.databaseUrlSecretArns));
+      }
       if (secretsConfig.stripeSecretKeySecretArn)
         secretArns.push(secretsConfig.stripeSecretKeySecretArn);
       if (secretsConfig.authSecretArn) secretArns.push(secretsConfig.authSecretArn);
@@ -349,13 +365,15 @@ export class EcsFargateServiceStack extends BaseStack {
         secretArns.push(...Object.values(secretsConfig.googleOAuthSecretArns));
       }
 
-      if (secretArns.length > 0) {
+      const uniqueSecretArns = Array.from(new Set(secretArns));
+
+      if (uniqueSecretArns.length > 0) {
         taskExecutionRole.addToPolicy(
           new iam.PolicyStatement({
             sid: 'AllowSecretsManagerRead',
             effect: iam.Effect.ALLOW,
             actions: ['secretsmanager:GetSecretValue'],
-            resources: secretArns,
+            resources: uniqueSecretArns,
           }),
         );
       }
@@ -410,43 +428,54 @@ export class EcsFargateServiceStack extends BaseStack {
       const containerSecrets: Record<string, ecs.Secret> = {};
       if (secretsConfig) {
         if (secretsConfig.databaseUrlSecretArn) {
-          const secret = secretsmanager.Secret.fromSecretCompleteArn(
-            this,
+          containerSecrets['DATABASE_URL'] = secretFromArn(
             `${brand}DatabaseUrlSecret`,
             secretsConfig.databaseUrlSecretArn,
           );
-          containerSecrets['DATABASE_URL'] = ecs.Secret.fromSecretsManager(secret);
+        }
+
+        if (config.appKind === 'api' && secretsConfig.databaseUrlSecretArns) {
+          for (const [key, arn] of Object.entries(secretsConfig.databaseUrlSecretArns)) {
+            if (!arn) continue;
+            const envKeySuffix = key.trim().length > 0 ? `_${key.toUpperCase()}` : '';
+            containerSecrets[`DATABASE_URL${envKeySuffix}`] = secretFromArn(
+              `${brand}${key}DatabaseUrlSecret`,
+              arn,
+            );
+          }
         }
         if (secretsConfig.stripeSecretKeySecretArn) {
-          const secret = secretsmanager.Secret.fromSecretCompleteArn(
-            this,
+          containerSecrets['STRIPE_SECRET_KEY'] = secretFromArn(
             `${brand}StripeSecretKeySecret`,
             secretsConfig.stripeSecretKeySecretArn,
           );
-          containerSecrets['STRIPE_SECRET_KEY'] = ecs.Secret.fromSecretsManager(secret);
         }
         if (secretsConfig.authSecretArn) {
-          const secret = secretsmanager.Secret.fromSecretCompleteArn(
-            this,
+          containerSecrets['AUTH_SECRET'] = secretFromArn(
             `${brand}AuthSecret`,
             secretsConfig.authSecretArn,
           );
-          containerSecrets['AUTH_SECRET'] = ecs.Secret.fromSecretsManager(secret);
         }
-        // Add Google OAuth secrets for this brand
-        if (secretsConfig.googleOAuthSecretArns?.[brand]) {
-          const secret = secretsmanager.Secret.fromSecretCompleteArn(
-            this,
-            `${brand}GoogleOAuthSecret`,
-            secretsConfig.googleOAuthSecretArns[brand],
-          );
-          // Google OAuth secret contains JSON with clientId and clientSecret
-          containerSecrets[`AUTH_GOOGLE_ID_${brand.toUpperCase()}`] = ecs.Secret.fromSecretsManager(
-            secret,
+        // Add Google OAuth secrets (per brand)
+        const googleSecretBrands =
+          config.appKind === 'api'
+            ? Object.keys(secretsConfig.googleOAuthSecretArns ?? {})
+            : [brand];
+
+        for (const googleBrand of googleSecretBrands) {
+          const googleSecretArn = secretsConfig.googleOAuthSecretArns?.[googleBrand];
+          if (!googleSecretArn) continue;
+
+          containerSecrets[`AUTH_GOOGLE_ID_${googleBrand.toUpperCase()}`] = secretFromArn(
+            `${brand}${googleBrand}GoogleOAuthSecret`,
+            googleSecretArn,
             'clientId',
           );
-          containerSecrets[`AUTH_GOOGLE_SECRET_${brand.toUpperCase()}`] =
-            ecs.Secret.fromSecretsManager(secret, 'clientSecret');
+          containerSecrets[`AUTH_GOOGLE_SECRET_${googleBrand.toUpperCase()}`] = secretFromArn(
+            `${brand}${googleBrand}GoogleOAuthSecretSecret`,
+            googleSecretArn,
+            'clientSecret',
+          );
         }
       }
 

@@ -16,3 +16,4 @@ export * from './ecs-cluster-stack';
 export * from './ecs-fargate-service-stack';
 export * from './static-webapp-stack';
 export * from './saas-secrets-stack';
+export * from './aurora-serverless-stack';

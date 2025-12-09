@@ -101,6 +101,7 @@ import {
   EcsFargateServiceStack,
   StaticWebAppStack,
   SaasSecretsStack,
+  AuroraServerlessStack,
 } from '../../stacks/workload';
 import { ResourceNaming } from '@codeiqlabs/aws-utils';
 import { DomainFoundationStage, DomainWireupStage } from '../../stages/domains';
@@ -337,6 +338,10 @@ export class ComponentOrchestrator implements BaseOrchestrator {
           company,
         };
 
+        const computeConfig = (config as any).compute;
+        const secretsConfig = (config as any).secrets;
+        const auroraConfig = (config as any).aurora;
+
         // Track VPC stack for dependent stacks
         let vpcStack: VpcStack | undefined;
 
@@ -363,9 +368,30 @@ export class ComponentOrchestrator implements BaseOrchestrator {
           }
         }
 
+        // Secrets stack (if enabled)
+        let secretsStack: SaasSecretsStack | undefined;
+        if (secretsConfig?.enabled) {
+          try {
+            secretsStack = new SaasSecretsStack(app, envNaming.stackName('Secrets'), {
+              stackConfig,
+              secretsConfig: {
+                recoveryWindowInDays: secretsConfig.recoveryWindowInDays ?? 7,
+                brands: secretsConfig.brands,
+                items: secretsConfig.items,
+              },
+              env: envEnv,
+            });
+          } catch (error) {
+            throw new OrchestrationError(
+              `Failed to create Secrets stack for environment ${envName}`,
+              'secrets',
+              error instanceof Error ? error : new Error(String(error)),
+            );
+          }
+        }
+
         // ECS Cluster stack (if compute.ecs is enabled and VPC exists)
         let ecsClusterStack: EcsClusterStack | undefined;
-        const computeConfig = (config as any).compute;
         if (computeConfig?.ecs?.enabled && vpcStack) {
           try {
             ecsClusterStack = new EcsClusterStack(app, envNaming.stackName('ECSCluster'), {
@@ -381,6 +407,40 @@ export class ComponentOrchestrator implements BaseOrchestrator {
             throw new OrchestrationError(
               `Failed to create ECS Cluster stack for environment ${envName}`,
               'compute',
+              error instanceof Error ? error : new Error(String(error)),
+            );
+          }
+        }
+
+        // Aurora stack (if enabled and VPC exists)
+        let auroraStack: AuroraServerlessStack | undefined;
+        const envAuroraOverrides = (envConfig.config as any)?.aurora;
+        const resolvedAuroraConfig = auroraConfig
+          ? { ...auroraConfig, ...(envAuroraOverrides || {}) }
+          : undefined;
+
+        if (resolvedAuroraConfig?.enabled && !vpcStack) {
+          throw new OrchestrationError(
+            `Aurora stack for environment ${envName} requires networking.vpc to be enabled`,
+            'aurora',
+            new Error('VPC stack not available for Aurora configuration'),
+          );
+        }
+
+        if (resolvedAuroraConfig?.enabled && vpcStack) {
+          try {
+            auroraStack = new AuroraServerlessStack(app, envNaming.stackName('Aurora'), {
+              stackConfig,
+              config: resolvedAuroraConfig,
+              vpc: vpcStack.vpc,
+              ecsSecurityGroup: vpcStack.ecsSecurityGroup,
+              env: envEnv,
+            });
+            auroraStack.addDependency(vpcStack);
+          } catch (error) {
+            throw new OrchestrationError(
+              `Failed to create Aurora stack for environment ${envName}`,
+              'aurora',
               error instanceof Error ? error : new Error(String(error)),
             );
           }
@@ -407,6 +467,46 @@ export class ComponentOrchestrator implements BaseOrchestrator {
                   ? service.brands! // Schema ensures this exists for 'web' type
                   : [service.name]; // Single-service: use service name as identifier
 
+              const googleOAuthSecretArns =
+                secretsStack && secretsConfig?.brands
+                  ? secretsConfig.brands.reduce(
+                      (acc: Record<string, string>, brandName: string) => {
+                        const secret = secretsStack?.getPerBrandSecret('google-oauth', brandName);
+                        if (secret) {
+                          acc[brandName] = secret.secretArn;
+                        }
+                        return acc;
+                      },
+                      {},
+                    )
+                  : undefined;
+
+              const databaseUrlSecretArns =
+                secretsStack && secretsConfig?.enabled
+                  ? (() => {
+                      const map: Record<string, string> = {};
+                      for (const [key, secret] of secretsStack.secrets.entries()) {
+                        if (!key.startsWith('database-url')) continue;
+                        const suffix = key.replace(/^database-url-?/, '');
+                        const normalizedKey = suffix || '';
+                        map[normalizedKey] = secret.secretArn;
+                      }
+                      return Object.keys(map).length > 0 ? map : undefined;
+                    })()
+                  : undefined;
+
+              const serviceSecrets =
+                secretsStack && secretsConfig?.enabled
+                  ? {
+                      databaseUrlSecretArn: secretsStack.getSecret('database-url')?.secretArn,
+                      databaseUrlSecretArns,
+                      stripeSecretKeySecretArn:
+                        secretsStack.getSecret('stripe-secret-key')?.secretArn,
+                      authSecretArn: secretsStack.getSecret('auth-secret')?.secretArn,
+                      googleOAuthSecretArns,
+                    }
+                  : undefined;
+
               const serviceStack = new EcsFargateServiceStack(
                 app,
                 envNaming.stackName(componentName),
@@ -426,11 +526,15 @@ export class ComponentOrchestrator implements BaseOrchestrator {
                     defaultDesiredCount: service.desiredCount,
                     defaultCpu: service.cpu,
                     defaultMemoryMiB: service.memoryMiB,
+                    secrets: serviceSecrets,
                   },
                   env: envEnv,
                 },
               );
               serviceStack.addDependency(ecsClusterStack);
+              if (auroraStack && service.name === 'api') {
+                serviceStack.addDependency(auroraStack);
+              }
             } catch (error) {
               throw new OrchestrationError(
                 `Failed to create ${service.name} ECS stack for environment ${envName}`,
@@ -464,28 +568,6 @@ export class ComponentOrchestrator implements BaseOrchestrator {
             throw new OrchestrationError(
               `Failed to create Static Web App stack for environment ${envName}`,
               'staticHosting',
-              error instanceof Error ? error : new Error(String(error)),
-            );
-          }
-        }
-
-        // Secrets stack (if enabled)
-        const secretsConfig = (config as any).secrets;
-        if (secretsConfig?.enabled) {
-          try {
-            new SaasSecretsStack(app, envNaming.stackName('Secrets'), {
-              stackConfig,
-              secretsConfig: {
-                recoveryWindowInDays: secretsConfig.recoveryWindowInDays ?? 7,
-                brands: secretsConfig.brands,
-                items: secretsConfig.items,
-              },
-              env: envEnv,
-            });
-          } catch (error) {
-            throw new OrchestrationError(
-              `Failed to create Secrets stack for environment ${envName}`,
-              'secrets',
               error instanceof Error ? error : new Error(String(error)),
             );
           }

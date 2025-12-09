@@ -75,8 +75,6 @@ export class GitHubOidcStack extends BaseStack {
 
     // GitHub OIDC provider thumbprint (GitHub's certificate thumbprint)
     const githubOidcThumbprint = '6938fd4d98bab03faadb97b34396831e3780aea1';
-
-    // Create the OIDC provider
     this.oidcProvider = new iam.OpenIdConnectProvider(this, 'GitHubOidcProvider', {
       url: 'https://token.actions.githubusercontent.com',
       clientIds: ['sts.amazonaws.com'],
