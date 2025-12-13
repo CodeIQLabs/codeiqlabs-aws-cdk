@@ -111,10 +111,22 @@ export interface EcsFargateServiceConfig {
   appKind: string;
 
   /**
+   * Optional service name used for resource naming
+   * Defaults to appKind if not provided
+   */
+  serviceName?: string;
+
+  /**
    * List of brands to deploy services for
    * Each brand gets its own ECS service with path-based routing
    */
   brands: string[];
+
+  /**
+   * Service type used for naming logic
+   * Determines whether names are brand-scoped (web) or single-scope (api/worker)
+   */
+  serviceType: 'webapp' | 'api' | 'worker';
 
   /**
    * ACM certificate ARN for ALB HTTPS
@@ -213,6 +225,12 @@ export interface EcsSecretsConfig {
  */
 export interface EcsFargateServiceStackProps extends BaseStackProps {
   /**
+   * Optional PascalCase component name for stack naming.
+   * Defaults to appKind if not provided.
+   */
+  componentName?: string;
+
+  /**
    * VPC where services will be deployed
    */
   vpc: ec2.IVpc;
@@ -263,12 +281,16 @@ export class EcsFargateServiceStack extends BaseStack {
   /**
    * SSM parameter containing the ALB DNS name
    */
-  public readonly albDnsParameter: ssm.IStringParameter;
+  public readonly albDnsParameter!: ssm.IStringParameter;
 
   constructor(scope: Construct, id: string, props: EcsFargateServiceStackProps) {
-    super(scope, id, props.serviceConfig.appKind, props);
+    const component =
+      props.componentName ?? props.serviceConfig.serviceName ?? props.serviceConfig.appKind;
+    super(scope, id, component, props);
 
     const config = props.serviceConfig;
+    const serviceId = config.appKind;
+    const serviceLabel = config.serviceName ?? config.appKind;
     const defaultContainerPort = config.defaultContainerPort ?? 3000;
     const defaultHealthCheckPath = config.defaultHealthCheckPath ?? '/health';
     const defaultDesiredCount = config.defaultDesiredCount ?? 1;
@@ -277,6 +299,7 @@ export class EcsFargateServiceStack extends BaseStack {
     const logRetentionDays = config.logRetentionDays ?? 30;
     // First brand in the array is always the default (for root path routing)
     const defaultBrand = config.brands[0];
+    const isWebService = config.serviceType === 'webapp';
 
     const secretFromArn = (id: string, secretArn: string, field?: string) => {
       const secret = secretsmanager.Secret.fromSecretCompleteArn(this, id, secretArn);
@@ -288,7 +311,7 @@ export class EcsFargateServiceStack extends BaseStack {
     // Create Application Load Balancer
     // ALB names have a 32 character limit, so we use a shorter naming pattern
     // Pattern: {env}-{appKind}-alb (e.g., "nprd-marketing-alb")
-    const albName = `${this.getStackConfig().environment}-${config.appKind}-alb`;
+    const albName = `${this.getStackConfig().environment}-${serviceLabel}-alb`;
     this.alb = new elbv2.ApplicationLoadBalancer(this, 'Alb', {
       loadBalancerName: albName.substring(0, 32), // Ensure max 32 chars
       vpc: props.vpc,
@@ -343,7 +366,7 @@ export class EcsFargateServiceStack extends BaseStack {
 
     // Create ECS task execution role (shared across all services)
     const taskExecutionRole = new iam.Role(this, 'TaskExecutionRole', {
-      roleName: this.naming.iamRoleName(`${config.appKind}-task-exec`),
+      roleName: this.naming.iamRoleName(`${serviceLabel}-task-exec`),
       assumedBy: new iam.ServicePrincipal('ecs-tasks.amazonaws.com'),
       managedPolicies: [
         iam.ManagedPolicy.fromAwsManagedPolicyName('service-role/AmazonECSTaskExecutionRolePolicy'),
@@ -381,7 +404,7 @@ export class EcsFargateServiceStack extends BaseStack {
 
     // Create ECS task role (shared across all services)
     const taskRole = new iam.Role(this, 'TaskRole', {
-      roleName: this.naming.iamRoleName(`${config.appKind}-task`),
+      roleName: this.naming.iamRoleName(`${serviceLabel}-task`),
       assumedBy: new iam.ServicePrincipal('ecs-tasks.amazonaws.com'),
     });
 
@@ -394,10 +417,16 @@ export class EcsFargateServiceStack extends BaseStack {
       const desiredCount = brandConfig.desiredCount ?? defaultDesiredCount;
       const cpu = brandConfig.cpu ?? defaultCpu;
       const memoryMiB = brandConfig.memoryMiB ?? defaultMemoryMiB;
+      // For web we scope resources by brand; for non-web we scope by serviceName if provided
+      const resourceBrand = isWebService ? brand : (config.serviceName ?? undefined);
 
       // Create ECR repository for this brand
       const repository = new ecr.Repository(this, `${brand}Repository`, {
-        repositoryName: this.naming.resourceName(`${config.appKind}-${brand}`).toLowerCase(),
+        repositoryName: this.naming
+          .resourceName(serviceId, {
+            brand: resourceBrand,
+          })
+          .toLowerCase(),
         removalPolicy: cdk.RemovalPolicy.RETAIN,
         lifecycleRules: [
           {
@@ -410,14 +439,18 @@ export class EcsFargateServiceStack extends BaseStack {
 
       // Create CloudWatch log group
       const logGroup = new logs.LogGroup(this, `${brand}LogGroup`, {
-        logGroupName: `/ecs/${this.naming.resourceName(`${config.appKind}-${brand}`)}`,
+        logGroupName: `/ecs/${this.naming.resourceName(serviceId, {
+          brand: resourceBrand,
+        })}`,
         retention: logRetentionDays,
         removalPolicy: cdk.RemovalPolicy.DESTROY,
       });
 
       // Create task definition
       const taskDefinition = new ecs.FargateTaskDefinition(this, `${brand}TaskDef`, {
-        family: this.naming.resourceName(`${config.appKind}-${brand}`),
+        family: this.naming.resourceName(serviceId, {
+          brand: resourceBrand,
+        }),
         cpu,
         memoryLimitMiB: memoryMiB,
         executionRole: taskExecutionRole,
@@ -500,7 +533,9 @@ export class EcsFargateServiceStack extends BaseStack {
 
       // Create Fargate service
       const service = new ecs.FargateService(this, `${brand}Service`, {
-        serviceName: this.naming.resourceName(`${config.appKind}-${brand}`),
+        serviceName: this.naming.resourceName(serviceId, {
+          brand: resourceBrand,
+        }),
         cluster: props.cluster,
         taskDefinition,
         desiredCount,
@@ -516,7 +551,11 @@ export class EcsFargateServiceStack extends BaseStack {
 
       // Create target group
       const targetGroup = new elbv2.ApplicationTargetGroup(this, `${brand}TargetGroup`, {
-        targetGroupName: this.naming.resourceName(`${config.appKind}-${brand}-tg`).substring(0, 32),
+        targetGroupName: this.naming
+          .resourceName(`${serviceId}-tg`, {
+            brand: resourceBrand,
+          })
+          .substring(0, 32),
         vpc: props.vpc,
         port: containerPort,
         protocol: elbv2.ApplicationProtocol.HTTP,
@@ -551,14 +590,35 @@ export class EcsFargateServiceStack extends BaseStack {
     }
 
     // Create SSM parameter for ALB DNS (for cross-account CloudFront origin discovery)
-    // Pattern: /{company}/{project}/{env}/{appKind}/alb-dns (derived from manifest)
-    const ssmParameterPath = this.naming.ssmParameterName(config.appKind, 'alb-dns');
-    this.albDnsParameter = new ssm.StringParameter(this, 'AlbDnsParameter', {
-      parameterName: ssmParameterPath,
-      stringValue: this.alb.loadBalancerDnsName,
-      description: `ALB DNS name for ${config.appKind} services`,
-      tier: ssm.ParameterTier.STANDARD,
-    });
+    // Pattern: brand-first for webapp: /{company}/{project}/{brand}/{env}/{appKind}/alb-dns
+    // Non-webapp: /{company}/{project}/{env}/{appKind}/alb-dns
+    const brandScopedPaths: string[] = [];
+    let primarySsmPath: string | undefined;
+
+    if (isWebService) {
+      for (const brand of config.brands) {
+        const path = this.naming.ssmParameterName(config.appKind, 'alb-dns', { brand });
+        brandScopedPaths.push(path);
+        const param = new ssm.StringParameter(this, `AlbDnsParameter${brand}`, {
+          parameterName: path,
+          stringValue: this.alb.loadBalancerDnsName,
+          description: `ALB DNS name for ${config.appKind} services (${brand})`,
+          tier: ssm.ParameterTier.STANDARD,
+        });
+        if (!this.albDnsParameter) {
+          this.albDnsParameter = param;
+          primarySsmPath = path;
+        }
+      }
+    } else {
+      primarySsmPath = this.naming.ssmParameterName(config.appKind, 'alb-dns');
+      this.albDnsParameter = new ssm.StringParameter(this, 'AlbDnsParameter', {
+        parameterName: primarySsmPath,
+        stringValue: this.alb.loadBalancerDnsName,
+        description: `ALB DNS name for ${config.appKind} services`,
+        tier: ssm.ParameterTier.STANDARD,
+      });
+    }
 
     // Export ALB DNS name
     new cdk.CfnOutput(this, 'AlbDnsName', {
@@ -567,12 +627,19 @@ export class EcsFargateServiceStack extends BaseStack {
       description: 'ALB DNS Name',
     });
 
-    // Export SSM parameter path
+    // Export SSM parameter paths
     new cdk.CfnOutput(this, 'AlbDnsSsmPath', {
-      value: ssmParameterPath,
+      value: primarySsmPath ?? '',
       exportName: this.naming.exportName(`${config.appKind}-alb-dns-ssm-path`),
       description: 'SSM Parameter path for ALB DNS',
     });
+    if (brandScopedPaths.length > 0) {
+      new cdk.CfnOutput(this, 'AlbDnsSsmPathsBrandScoped', {
+        value: brandScopedPaths.join(','),
+        exportName: this.naming.exportName(`${config.appKind}-alb-dns-ssm-paths-branded`),
+        description: 'Brand-scoped SSM Parameter paths for ALB DNS',
+      });
+    }
 
     // Export ALB ARN
     new cdk.CfnOutput(this, 'AlbArn', {

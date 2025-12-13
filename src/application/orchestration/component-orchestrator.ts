@@ -20,7 +20,8 @@
  * **What Gets Deployed Where:**
  * - organization → deployment.accountId (single stack)
  * - identityCenter → deployment.accountId (single stack)
- * - domains → deployment.accountId (4 stacks: RootDomain, CloudFrontAndCert, DnsRecords, DomainDelegation)
+ * - domains → deployment.accountId (DomainFoundationStage: RootDomain + AcmAndWaf + optional
+ *   DomainDelegation; DomainWireupStage: CloudFrontDistribution + DnsRecords)
  * - networking → environments[*].accountId (one stack per environment)
  *
  * @example Single-account deployment
@@ -35,12 +36,13 @@
  * domains:
  *   enabled: true
  * ```
- * Creates 6 stacks in account 682475224767:
+ * Creates 6 stacks in account 682475224767 (7 if delegations are configured):
  * - Organizations stack
  * - Identity Center stack
  * - RootDomain stack
- * - CloudFrontAndCert stack (us-east-1)
- * - DnsRecords stack
+ * - AcmAndWaf stack (us-east-1)
+ * - CloudFrontDistribution stack (us-east-1)
+ * - DnsRecords stack (management region)
  * - DomainDelegation stack (if delegations configured)
  *
  * @example Multi-environment deployment
@@ -79,11 +81,12 @@
  *   vpc:
  *     enabled: true
  * ```
- * Creates 8 stacks total:
+ * Creates 7 stacks total (8 if delegations are configured):
  * - Organizations stack in 682475224767
  * - RootDomain stack in 682475224767
- * - CloudFrontAndCert stack in 682475224767 (us-east-1)
- * - DnsRecords stack in 682475224767
+ * - AcmAndWaf stack in 682475224767 (us-east-1)
+ * - CloudFrontDistribution stack in 682475224767 (us-east-1)
+ * - DnsRecords stack in 682475224767 (management region)
  * - DomainDelegation stack in 682475224767 (if delegations configured)
  * - VPC-nprd stack in 466279485605
  * - VPC-prod stack in 719640820326
@@ -107,42 +110,16 @@ import { ResourceNaming } from '@codeiqlabs/aws-utils';
 import { DomainFoundationStage, DomainWireupStage } from '../../stages/domains';
 
 /**
- * Known acronyms that should remain uppercase in component names
- */
-const KNOWN_ACRONYMS = [
-  'api',
-  'vpc',
-  'ecs',
-  'ecr',
-  'alb',
-  'rds',
-  'ssm',
-  'iam',
-  'acm',
-  'waf',
-  'cdn',
-];
-
-/**
  * Convert service name to PascalCase component name
- * Handles acronyms specially (api -> API, vpc -> VPC)
  *
  * @example
  * toComponentName('frontend') // 'Frontend'
- * toComponentName('api') // 'API'
  * toComponentName('admin-portal') // 'AdminPortal'
- * toComponentName('my-api-service') // 'MyAPIService'
  */
 function toComponentName(serviceName: string): string {
   return serviceName
     .split('-')
-    .map((segment) => {
-      const lower = segment.toLowerCase();
-      if (KNOWN_ACRONYMS.includes(lower)) {
-        return segment.toUpperCase();
-      }
-      return segment.charAt(0).toUpperCase() + segment.slice(1).toLowerCase();
-    })
+    .map((segment) => segment.charAt(0).toUpperCase() + segment.slice(1).toLowerCase())
     .join('');
 }
 
@@ -457,15 +434,14 @@ export class ComponentOrchestrator implements BaseOrchestrator {
             if (service.type === 'worker') continue;
 
             try {
-              const componentName = toComponentName(service.name);
+              const serviceName = service.name || service.type;
+              const appKind = service.type;
+              const componentName = toComponentName(serviceName);
 
               // Determine brands based on service type:
-              // - 'web' services: use explicit brands array (schema-validated to be non-empty)
-              // - 'api' services: use service name as single-item array
-              const serviceBrands =
-                service.type === 'web'
-                  ? service.brands! // Schema ensures this exists for 'web' type
-                  : [service.name]; // Single-service: use service name as identifier
+              // - 'webapp' services: use explicit brands array (schema-validated to be non-empty)
+              // - 'api' services: single identifier derived from name/type
+              const serviceBrands = service.type === 'webapp' ? service.brands! : [serviceName];
 
               const googleOAuthSecretArns =
                 secretsStack && secretsConfig?.brands
@@ -511,13 +487,16 @@ export class ComponentOrchestrator implements BaseOrchestrator {
                 app,
                 envNaming.stackName(componentName),
                 {
+                  componentName,
                   stackConfig,
                   vpc: vpcStack.vpc,
                   cluster: ecsClusterStack.cluster,
                   albSecurityGroup: vpcStack.albSecurityGroup,
                   ecsSecurityGroup: vpcStack.ecsSecurityGroup,
                   serviceConfig: {
-                    appKind: service.name,
+                    appKind,
+                    serviceName,
+                    serviceType: service.type,
                     brands: serviceBrands,
                     certificateArn: ecsConfig.certificateArn || '',
                     // defaultBrand is derived from brands[0] in the stack
@@ -532,12 +511,12 @@ export class ComponentOrchestrator implements BaseOrchestrator {
                 },
               );
               serviceStack.addDependency(ecsClusterStack);
-              if (auroraStack && service.name === 'api') {
+              if (auroraStack && appKind === 'api') {
                 serviceStack.addDependency(auroraStack);
               }
             } catch (error) {
               throw new OrchestrationError(
-                `Failed to create ${service.name} ECS stack for environment ${envName}`,
+                `Failed to create ${service.type} ECS stack for environment ${envName}`,
                 'compute',
                 error instanceof Error ? error : new Error(String(error)),
               );
@@ -549,13 +528,15 @@ export class ComponentOrchestrator implements BaseOrchestrator {
         const staticHostingConfig = (config as any).staticHosting;
         if (staticHostingConfig?.enabled) {
           try {
-            const webApps = staticHostingConfig.webApps || [];
-            const brands = webApps.map((app: { brand: string }) => app.brand);
+            const sites = staticHostingConfig.sites || [];
+            const brands = sites.map((site: { brand: string }) => site.brand);
 
             if (brands.length > 0) {
-              new StaticWebAppStack(app, envNaming.stackName('WebApp'), {
+              // Use a stack name that matches the static hosting component to avoid
+              // confusion with the ECS Webapp stack
+              new StaticWebAppStack(app, envNaming.stackName('StaticHosting'), {
                 stackConfig,
-                webAppConfig: {
+                siteConfig: {
                   brands,
                   managementAccountId:
                     staticHostingConfig.managementAccountId || deploymentAccountId,

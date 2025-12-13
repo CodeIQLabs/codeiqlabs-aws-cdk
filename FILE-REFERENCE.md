@@ -247,8 +247,9 @@ The application layer handles CDK application creation, configuration, and orche
 - Detects enabled components in manifest (organization, identityCenter, domains)
 - Creates appropriate stacks for each enabled component
 - Handles cross-account dependencies and stack ordering
-- For domains component, creates 4 stacks: RootDomain, CloudFrontAndCert (us-east-1), DnsRecords,
-  and DomainDelegation (if delegations configured)
+- For domains component, creates two stages: DomainFoundationStage (RootDomain, AcmAndWaf in
+  us-east-1, optional DomainDelegation) and DomainWireupStage (CloudFrontDistribution in us-east-1,
+  DnsRecords)
 
 **Key Methods**:
 
@@ -260,9 +261,11 @@ The application layer handles CDK application creation, configuration, and orche
 When `config.domains.enabled` is true, creates the following stacks in order:
 
 1. **RootDomainStack** - Creates Route53 hosted zones for registered domains
-2. **CloudFrontAndCertStack** - Creates ACM certificates and CloudFront distributions (us-east-1)
-3. **DnsRecordsStack** - Creates ALIAS records pointing to CloudFront distributions
-4. **DomainDelegationStack** - Creates NS delegation records (only if delegations are configured)
+2. **AcmAndWafStack** - Issues us-east-1 ACM certificates and WAF Web ACLs for CloudFront
+3. **CloudFrontDistributionStack** - Creates CloudFront distributions (us-east-1) using exported
+   certificates
+4. **DnsRecordsStack** - Creates ALIAS records pointing to CloudFront distributions
+5. **DomainDelegationStack** - Creates NS delegation records (only if delegations are configured)
 
 #### `/src/application/orchestration/index.ts`
 
@@ -382,33 +385,48 @@ account.
 
 **Deployment Frequency**: Rare (only when adding new domains)
 
-#### `/src/stacks/domains/cloudfront-cert-stack.ts`
+#### `/src/stacks/domains/acm-waf-stack.ts`
 
-**Purpose**: Stack for managing ACM certificates (us-east-1) and CloudFront distributions for
-marketing and app domains using wildcard certificate optimization.
+**Purpose**: Stage 1 stack for us-east-1 ACM certificates and WAF Web ACLs used by CloudFront.
 
 **Key Features**:
 
-- Creates ACM certificates with DNS validation (must be in us-east-1 for CloudFront)
-- **Wildcard certificate optimization**: 2 certs per domain (wildcard + apex) instead of 1 per
-  subdomain
-  - Wildcard cert (`*.domain.com`) covers: www, app, api subdomains
-  - Apex cert (`domain.com`) covers: root domain
-  - Example: 5 domains = 10 certificates (vs 18 with individual certs)
-- Creates CloudFront distributions for marketing/app subdomains
-- Supports multiple origin types (S3, ALB cross-account, custom)
-- Exports distribution domain names for DNS stack
-- WAF integration support
-- Security best practices (TLS 1.2+, HTTP/2+3, IPv6)
+- Validates deployment in us-east-1 (CloudFront certificate requirement)
+- Imports hosted zones from RootDomainStack
+- Issues combined apex + wildcard certificate per registered domain (one cert covers both)
+- Exports certificate ARNs for CloudFront distributions
+- Creates environment-wide WAF Web ACLs (prod open, nprd IP-allowlist)
 
-**Key Class**: `CloudFrontAndCertStack`
+**Key Class**: `AcmAndWafStack`
 
 **Key Exports**:
 
-- `{DomainName}WildcardCertificateArn` - Wildcard ACM certificate ARN (\*.domain.com)
-- `{DomainName}ApexCertificateArn` - Apex ACM certificate ARN (domain.com)
-- `{SubdomainName}DistributionDomain` - CloudFront distribution domain name
-- `{SubdomainName}DistributionId` - CloudFront distribution ID
+- `{DomainName}WildcardCertificateArn` / `{DomainName}ApexCertificateArn` - Combined ACM certificate
+  ARN for apex + wildcard
+- `ProdWebAclArn`, `NprdWebAclArn` - WAF Web ACL ARNs for CloudFront
+
+**Deployment Frequency**: Infrequent (when adding domains or adjusting WAF/certs)
+
+#### `/src/stacks/domains/cloudfront-distribution-stack.ts`
+
+**Purpose**: Stage 2 stack for CloudFront distributions per registered domain using exported
+certificates.
+
+**Key Features**:
+
+- Creates one CloudFront distribution per brand and groups subdomains as alternate domain names
+- Imports combined certificate ARN from `AcmAndWafStack`
+- Uses a placeholder HTTP origin until workload ALBs are deployed
+- Exports distribution domains/IDs for DNS wiring
+- TLS best practices (TLS 1.2 2021, HTTP/2+3, IPv6)
+
+**Key Class**: `CloudFrontDistributionStack`
+
+**Key Exports**:
+
+- `{DomainName}DistributionDomain` - CloudFront distribution domain name
+- `{DomainName}DistributionId` - CloudFront distribution ID
+- `{SubdomainName}DistributionDomain` - Subdomain export to support DNS records
 
 **Deployment Frequency**: Infrequent (when adding domains or changing CloudFront config)
 
@@ -435,7 +453,7 @@ distributions or ALBs.
 **Dependencies**:
 
 - RootDomainStack (for hosted zones)
-- CloudFrontAndCertStack (for CloudFront distribution domains)
+- CloudFrontDistributionStack (for CloudFront distribution domains)
 - Workload ALB stacks (for ALB DNS names)
 
 **Deployment Frequency**: Frequent (whenever CloudFront or ALB endpoints change)

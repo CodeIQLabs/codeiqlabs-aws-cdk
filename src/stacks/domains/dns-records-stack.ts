@@ -8,7 +8,7 @@ import type { UnifiedAppConfig } from '@codeiqlabs/aws-utils';
  * DNS Records Stack
  *
  * This stack creates DNS records (ALIAS records) in Route53 hosted zones that point to
- * CloudFront distributions or ALBs. It depends on RootDomainStack and CloudFrontAndCertStack.
+ * CloudFront distributions or ALBs. It depends on RootDomainStack and CloudFrontDistributionStack.
  *
  * **Architecture:**
  * - Deployed in Management Account
@@ -60,7 +60,7 @@ import type { UnifiedAppConfig } from '@codeiqlabs/aws-utils';
  *
  * **Dependencies:**
  * - RootDomainStack (for hosted zones)
- * - CloudFrontAndCertStack (for CloudFront distributions)
+ * - CloudFrontDistributionStack (for CloudFront distributions)
  * - Workload account ALB stacks (for ALB targets)
  *
  * **Deployment Frequency:** Frequent (whenever CloudFront or ALB endpoints change)
@@ -165,7 +165,7 @@ export class DnsRecordsStack extends BaseStack {
   ): void {
     const subdomainName = subdomain.name;
 
-    // Import CloudFront distribution domain name from CloudFrontAndCertStack
+    // Import CloudFront distribution domain name from CloudFrontDistributionStack
     const distributionDomain = Fn.importValue(
       this.naming.exportName(`${this.sanitizeDomainName(subdomainName)}-distribution-domain`),
     );

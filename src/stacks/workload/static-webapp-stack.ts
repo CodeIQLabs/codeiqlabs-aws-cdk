@@ -21,7 +21,7 @@
  *     owner: 'MyCompany',
  *     company: 'MyCompany',
  *   },
- *   webAppConfig: {
+ *   siteConfig: {
  *     brands: ['acme', 'globex', 'initech'],
  *   },
  * });
@@ -36,9 +36,9 @@ import type { Construct } from 'constructs';
 import { BaseStack, BaseStackProps } from '../base';
 
 /**
- * Static Web App configuration
+ * Static Site configuration
  */
-export interface StaticWebAppConfig {
+export interface StaticSiteConfig {
   /**
    * List of brands to create S3 buckets for
    */
@@ -67,9 +67,9 @@ export interface StaticWebAppConfig {
  */
 export interface StaticWebAppStackProps extends BaseStackProps {
   /**
-   * Web app configuration
+   * Static site configuration
    */
-  webAppConfig: StaticWebAppConfig;
+  siteConfig: StaticSiteConfig;
 }
 
 /**
@@ -90,9 +90,9 @@ export class StaticWebAppStack extends BaseStack {
   public readonly bucketParameters: Map<string, ssm.IStringParameter> = new Map();
 
   constructor(scope: Construct, id: string, props: StaticWebAppStackProps) {
-    super(scope, id, 'WebApp', props);
+    super(scope, id, 'StaticHosting', props);
 
-    const config = props.webAppConfig;
+    const config = props.siteConfig;
     const enableVersioning = config.enableVersioning ?? true;
 
     // Create S3 bucket for each brand

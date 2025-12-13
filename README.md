@@ -40,13 +40,17 @@ npm install @codeiqlabs/aws-cdk
 
 ## Features
 
-| Component               | What You Get                                                                                               | Stacks                                                                   |
-| ----------------------- | ---------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
-| **Organizations**       | Create OUs and accounts<br>Apply org policies                                                              | `ManagementOrganizationsStack`                                           |
-| **Identity Center**     | Users, groups, permission sets<br>Account assignments                                                      | `ManagementIdentityCenterStack`                                          |
-| **Domains & DNS**       | Hosted zones<br>CloudFront distributions<br>ACM certificates<br>Cross-account DNS delegation               | `RootDomainStack`<br>`CloudFrontAndCertStack`<br>`DomainDelegationStack` |
-| **Base Stack**          | Unified `BaseStack` with consistent naming, tagging, and environment validation                            | All stacks extend `BaseStack`                                            |
-| **Reusable Constructs** | L2/L3 constructs for ACM, CloudFront, Route 53, S3, Identity Center, Organizations, deployment permissions | Available in `src/constructs`                                            |
+| Component               | What You Get                                                                                                                            | Stacks                                                                                                                                         |
+| ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Organizations**       | Create OUs and accounts<br>Apply org policies                                                                                           | `ManagementOrganizationsStack`                                                                                                                 |
+| **Identity Center**     | Users, groups, permission sets<br>Account assignments                                                                                   | `ManagementIdentityCenterStack`                                                                                                                |
+| **Domains & DNS**       | Hosted zones<br>ACM certificates (us-east-1)<br>WAF Web ACLs<br>CloudFront distributions<br>DNS records<br>Cross-account DNS delegation | `RootDomainStack`<br>`AcmAndWafStack` (us-east-1)<br>`CloudFrontDistributionStack` (us-east-1)<br>`DnsRecordsStack`<br>`DomainDelegationStack` |
+| **Base Stack**          | Unified `BaseStack` with consistent naming, tagging, and environment validation                                                         | All stacks extend `BaseStack`                                                                                                                  |
+| **Reusable Constructs** | L2/L3 constructs for ACM, CloudFront, Route 53, S3, Identity Center, Organizations, deployment permissions                              | Available in `src/constructs`                                                                                                                  |
+
+> CloudFront and certificate management are delivered in two stages: `AcmAndWafStack` in us-east-1
+> (certificates + WAF) and `CloudFrontDistributionStack` plus `DnsRecordsStack` for the distribution
+> and DNS wiring. Older references to "CloudFrontAndCertStack" refer to this combined flow.
 
 ## How It Works (Concepts)
 
