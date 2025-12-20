@@ -131,13 +131,7 @@ export class GitHubOidcStack extends BaseStack {
     const subjects: string[] = [];
 
     for (const repo of repositories) {
-      const {
-        owner,
-        repo: repoName,
-        branch = 'main',
-        allowTags = true,
-        environments = [],
-      } = repo;
+      const { owner, repo: repoName, branch = 'main', allowTags = true, environments = [] } = repo;
 
       // Allow the specified branch
       if (branch === '*') {
