@@ -628,11 +628,18 @@ export class ComponentOrchestrator implements BaseOrchestrator {
 
               // Build repository configurations
               const repositories = (target.repositories || []).map(
-                (repo: { owner: string; repo: string; branch?: string; allowTags?: boolean }) => ({
+                (repo: {
+                  owner: string;
+                  repo: string;
+                  branch?: string;
+                  allowTags?: boolean;
+                  environments?: string[];
+                }) => ({
                   owner: repo.owner,
                   repo: repo.repo,
                   branch: repo.branch || 'main',
                   allowTags: repo.allowTags !== false,
+                  environments: repo.environments || [],
                 }),
               );
 
