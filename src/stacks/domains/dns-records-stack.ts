@@ -7,63 +7,20 @@ import type { UnifiedAppConfig } from '@codeiqlabs/aws-utils';
 /**
  * DNS Records Stack
  *
- * This stack creates DNS records (ALIAS records) in Route53 hosted zones that point to
- * CloudFront distributions or ALBs. It depends on RootDomainStack and CloudFrontDistributionStack.
+ * Creates ALIAS records in Route53 hosted zones pointing to CloudFront distributions.
  *
  * **Architecture:**
  * - Deployed in Management Account
- * - Creates ALIAS records in Route53 hosted zones
- * - Points to CloudFront distributions (same account)
- * - Points to ALBs (cross-account via domain name)
+ * - Creates ALIAS records: {subdomain}.{brand} → CloudFront distribution
  * - Handles both apex and subdomain records
+ * - Also creates ALIAS records for aliases (e.g., www.savvue.com)
  *
- * **Features:**
- * - Automatic ALIAS record creation for CloudFront distributions
- * - Support for cross-account ALB targets
- * - Apex domain support
- * - Consistent naming and tagging
- *
- * **Usage:**
- * ```typescript
- * new DnsRecordsStack(this, 'DnsRecords', {
- *   stackConfig: {
- *     project: 'CodeIQLabs',
- *     environment: 'mgmt',
- *     region: 'us-east-1',
- *     accountId: '682475224767',
- *     owner: 'CodeIQLabs',
- *     company: 'CodeIQLabs',
- *   },
- *   config: manifestConfig, // Must include domains configuration
- * });
- * ```
- *
- * **Manifest Configuration:**
- * ```yaml
- * domains:
- *   enabled: true
- *   registeredDomains:
- *     - name: "example.com"
- *       subdomains:
- *         - name: "www.example.com"
- *           type: "marketing"
- *           cloudfront:
- *             enabled: true
- *         - name: "api.example.com"
- *           type: "api"
- *           cloudfront:
- *             enabled: false
- *           alb:
- *             account: "719640820326"
- *             region: "us-east-1"
- * ```
+ * **Note:** Origin CNAME records (origin-{env}-{service}.{brand} → ALB) are now
+ * handled by OriginCnameRecordsStack, which is deployed before this stack.
  *
  * **Dependencies:**
  * - RootDomainStack (for hosted zones)
  * - CloudFrontDistributionStack (for CloudFront distributions)
- * - Workload account ALB stacks (for ALB targets)
- *
- * **Deployment Frequency:** Frequent (whenever CloudFront or ALB endpoints change)
  */
 
 export interface DnsRecordsStackProps extends BaseStackProps {
@@ -81,8 +38,8 @@ export class DnsRecordsStack extends BaseStack {
   constructor(scope: Construct, id: string, props: DnsRecordsStackProps) {
     super(scope, id, 'DnsRecords', props);
 
-    // TODO: Fix type issue with domains property
     const domainConfig = (props.config as any).domains;
+
     if (!domainConfig?.enabled || !domainConfig.registeredDomains?.length) {
       throw new Error('Domain configuration is required for DNS records stack');
     }
@@ -141,17 +98,11 @@ export class DnsRecordsStack extends BaseStack {
     domainIndex: number,
     subdomainIndex: number,
   ): void {
-    // Determine target based on configuration
+    // Only create records for CloudFront-enabled subdomains
     if (subdomain.cloudfront?.enabled) {
-      // CloudFront distribution target
       this.createCloudFrontRecord(subdomain, hostedZone, domainIndex, subdomainIndex);
-    } else if (subdomain.alb) {
-      // ALB target (cross-account or same account)
-      this.createAlbRecord(subdomain);
-    } else {
-      // No target configured - skip
-      return;
     }
+    // Note: Origin CNAME records are now handled by OriginCnameRecordsStack
   }
 
   /**
@@ -192,44 +143,6 @@ export class DnsRecordsStack extends BaseStack {
       value: `${subdomainName} -> CloudFront`,
       description: `DNS record for ${subdomainName}`,
       exportName: this.naming.exportName(`${this.sanitizeDomainName(subdomainName)}-dns-record`),
-    });
-  }
-
-  /**
-   * Create ALIAS record pointing to ALB
-   */
-  private createAlbRecord(subdomain: any): void {
-    const subdomainName = subdomain.name;
-    const albConfig = subdomain.alb;
-
-    if (!albConfig.account || !albConfig.region) {
-      throw new Error(
-        `ALB configuration for ${subdomainName} is missing required account or region`,
-      );
-    }
-
-    // For cross-account ALB, we need to use the ALB's DNS name
-    // This would typically be imported from the workload account stack
-    // For now, we'll create a placeholder that expects the ALB DNS name to be exported
-
-    // Note: Importing the ALB DNS name for reference (not currently used in implementation)
-    Fn.importValue(
-      `${this.getStackConfig().project}-${albConfig.account}-${albConfig.region}-alb-${this.sanitizeDomainName(subdomainName)}-dns`,
-    );
-
-    // Note: Cross-account ALB ALIAS records require the ALB to be in a public hosted zone
-    // or we need to use CNAME records instead. For simplicity, we'll use a comment here
-    // indicating this needs to be implemented based on specific ALB setup
-
-    // TODO: Implement proper cross-account ALB ALIAS record
-    // This may require custom resource or CNAME record depending on setup
-
-    new CfnOutput(this, `${this.sanitizeDomainName(subdomainName)}AlbRecordPlaceholder`, {
-      value: `${subdomainName} -> ALB (${albConfig.account}/${albConfig.region})`,
-      description: `Placeholder for ALB DNS record for ${subdomainName}`,
-      exportName: this.naming.exportName(
-        `${this.sanitizeDomainName(subdomainName)}-alb-record-placeholder`,
-      ),
     });
   }
 

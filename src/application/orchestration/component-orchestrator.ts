@@ -97,7 +97,7 @@ import type { UnifiedAppConfig } from '@codeiqlabs/aws-utils';
 import { BaseOrchestrator, OrchestrationError } from './base-orchestrator';
 import { ManagementOrganizationsStack } from '../../stacks/organizations/organizations-stack';
 import { ManagementIdentityCenterStack } from '../../stacks/identity-center/identity-center-stack';
-import { OriginDiscoveryReadRoleStack, GitHubOidcStack } from '../../stacks/customization';
+import { GitHubOidcStack } from '../../stacks/customization';
 import {
   VpcStack,
   EcsClusterStack,
@@ -105,6 +105,7 @@ import {
   StaticWebAppStack,
   SaasSecretsStack,
   AuroraServerlessStack,
+  OriginHostedZoneStack,
 } from '../../stacks/workload';
 import { ResourceNaming } from '@codeiqlabs/aws-utils';
 import { DomainFoundationStage, DomainWireupStage } from '../../stages/domains';
@@ -318,9 +319,13 @@ export class ComponentOrchestrator implements BaseOrchestrator {
         const computeConfig = (config as any).compute;
         const secretsConfig = (config as any).secrets;
         const auroraConfig = (config as any).aurora;
+        const originZonesConfig = (config as any).originZones;
 
         // Track VPC stack for dependent stacks
         let vpcStack: VpcStack | undefined;
+
+        // Track ECS service stacks for origin zone creation
+        const ecsServiceStacks: Map<string, EcsFargateServiceStack> = new Map();
 
         // Networking/VPC stack (if enabled)
         if (config.networking?.vpc?.enabled) {
@@ -514,6 +519,10 @@ export class ComponentOrchestrator implements BaseOrchestrator {
               if (auroraStack && appKind === 'api') {
                 serviceStack.addDependency(auroraStack);
               }
+
+              // Track service stack for origin zone creation
+              // Key is the service type (webapp, api) which maps to origin record names
+              ecsServiceStacks.set(service.type, serviceStack);
             } catch (error) {
               throw new OrchestrationError(
                 `Failed to create ${service.type} ECS stack for environment ${envName}`,
@@ -521,6 +530,44 @@ export class ComponentOrchestrator implements BaseOrchestrator {
                 error instanceof Error ? error : new Error(String(error)),
               );
             }
+          }
+        }
+
+        // Origin Hosted Zone stack (if enabled and ECS services exist)
+        // Creates origin-{env}.{brand} zones with Alias A records to ALBs
+        if (originZonesConfig?.enabled && ecsServiceStacks.size > 0) {
+          try {
+            const brands = originZonesConfig.brands || [];
+            const services = Array.from(ecsServiceStacks.entries()).map(([serviceType, stack]) => ({
+              name: serviceType,
+              alb: stack.alb,
+            }));
+
+            if (brands.length > 0 && services.length > 0) {
+              const originZoneStack = new OriginHostedZoneStack(
+                app,
+                envNaming.stackName('OriginZones'),
+                {
+                  stackConfig,
+                  originConfig: {
+                    brands,
+                    services,
+                  },
+                  env: envEnv,
+                },
+              );
+
+              // Add dependencies on all ECS service stacks
+              for (const serviceStack of ecsServiceStacks.values()) {
+                originZoneStack.addDependency(serviceStack);
+              }
+            }
+          } catch (error) {
+            throw new OrchestrationError(
+              `Failed to create Origin Hosted Zone stack for environment ${envName}`,
+              'originZones',
+              error instanceof Error ? error : new Error(String(error)),
+            );
           }
         }
 
@@ -551,64 +598,6 @@ export class ComponentOrchestrator implements BaseOrchestrator {
               'staticHosting',
               error instanceof Error ? error : new Error(String(error)),
             );
-          }
-        }
-      }
-    }
-
-    // ========================================================================
-    // ALB ORIGIN DISCOVERY COMPONENTS
-    // These deploy cross-account roles to workload accounts for ALB origin discovery
-    // ========================================================================
-
-    // Create Origin Discovery Read Role stacks if albOriginDiscovery is enabled
-    // These roles allow the Management account's Lambda to read SSM parameters
-    // from workload accounts for origin discovery (ALB DNS names)
-    const albOriginDiscovery = (config as any).albOriginDiscovery;
-    const albTargets = albOriginDiscovery?.targets;
-    if (albOriginDiscovery?.enabled && albTargets) {
-      // Get SSM parameter prefix from config or derive from company name
-      // Pattern: /{company}/* - allows reading all SSM parameters under the company namespace
-      const defaultSsmPrefix = `/${company.toLowerCase()}/*`;
-      const ssmParameterPrefix = albOriginDiscovery.ssmParameterPrefix || defaultSsmPrefix;
-
-      // Create Origin Discovery Read Roles for each target project's environments
-      for (const target of albTargets) {
-        const targetProjectName = target.projectName;
-        if (target?.environments) {
-          for (const environment of target.environments) {
-            try {
-              const envNaming = new ResourceNaming({
-                company,
-                project: targetProjectName,
-                environment: environment.name,
-                region: environment.region,
-                accountId: environment.accountId,
-              });
-
-              new OriginDiscoveryReadRoleStack(app, envNaming.stackName('OriginDiscovery'), {
-                stackConfig: {
-                  project: targetProjectName,
-                  environment: environment.name,
-                  region: environment.region,
-                  accountId: environment.accountId,
-                  owner,
-                  company,
-                },
-                managementAccountId: deploymentAccountId,
-                ssmParameterPathPrefix: ssmParameterPrefix,
-                env: {
-                  account: environment.accountId,
-                  region: environment.region,
-                },
-              });
-            } catch (error) {
-              throw new OrchestrationError(
-                `Failed to create Origin Discovery Read Role stack for ${targetProjectName}-${environment.name}`,
-                'albOriginDiscovery',
-                error instanceof Error ? error : new Error(String(error)),
-              );
-            }
           }
         }
       }

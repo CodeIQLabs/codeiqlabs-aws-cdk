@@ -99,7 +99,7 @@ export class StaticWebAppStack extends BaseStack {
     for (const brand of config.brands) {
       // Create S3 bucket for static assets
       const bucket = new s3.Bucket(this, `${brand}Bucket`, {
-        bucketName: this.naming.s3BucketName(`webapp-${brand}`),
+        bucketName: this.naming.s3BucketName(`static-${brand}`),
         versioned: enableVersioning,
         encryption: s3.BucketEncryption.S3_MANAGED,
         blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
@@ -128,45 +128,45 @@ export class StaticWebAppStack extends BaseStack {
       );
 
       // Create SSM parameter for bucket info (for cross-account CloudFront configuration)
-      // Pattern: /{company}/{project}/{env}/webapp/{brand}/bucket-name (derived from manifest)
-      const ssmParameterPath = this.naming.ssmParameterName(`webapp/${brand}`, 'bucket-name');
+      // Pattern: /{company}/{project}/{env}/static/{brand}/bucket-name (derived from manifest)
+      const ssmParameterPath = this.naming.ssmParameterName(`static/${brand}`, 'bucket-name');
       const bucketParameter = new ssm.StringParameter(this, `${brand}BucketParameter`, {
         parameterName: ssmParameterPath,
         stringValue: bucket.bucketName,
-        description: `S3 bucket name for ${brand} web app`,
+        description: `S3 bucket name for ${brand} static site`,
         tier: ssm.ParameterTier.STANDARD,
       });
       this.bucketParameters.set(brand, bucketParameter);
 
       // Also store bucket regional domain name for CloudFront origin
-      // Pattern: /{company}/{project}/{env}/webapp/{brand}/bucket-domain (derived from manifest)
-      const domainParameterPath = this.naming.ssmParameterName(`webapp/${brand}`, 'bucket-domain');
+      // Pattern: /{company}/{project}/{env}/static/{brand}/bucket-domain (derived from manifest)
+      const domainParameterPath = this.naming.ssmParameterName(`static/${brand}`, 'bucket-domain');
       new ssm.StringParameter(this, `${brand}BucketDomainParameter`, {
         parameterName: domainParameterPath,
         stringValue: bucket.bucketRegionalDomainName,
-        description: `S3 bucket regional domain for ${brand} web app`,
+        description: `S3 bucket regional domain for ${brand} static site`,
         tier: ssm.ParameterTier.STANDARD,
       });
 
       // Export bucket name
       new cdk.CfnOutput(this, `${brand}BucketName`, {
         value: bucket.bucketName,
-        exportName: this.naming.exportName(`webapp-${brand}-bucket`),
-        description: `S3 bucket name for ${brand} web app`,
+        exportName: this.naming.exportName(`static-${brand}-bucket`),
+        description: `S3 bucket name for ${brand} static site`,
       });
 
       // Export bucket ARN
       new cdk.CfnOutput(this, `${brand}BucketArn`, {
         value: bucket.bucketArn,
-        exportName: this.naming.exportName(`webapp-${brand}-bucket-arn`),
-        description: `S3 bucket ARN for ${brand} web app`,
+        exportName: this.naming.exportName(`static-${brand}-bucket-arn`),
+        description: `S3 bucket ARN for ${brand} static site`,
       });
 
       // Export bucket regional domain name
       new cdk.CfnOutput(this, `${brand}BucketDomain`, {
         value: bucket.bucketRegionalDomainName,
-        exportName: this.naming.exportName(`webapp-${brand}-bucket-domain`),
-        description: `S3 bucket regional domain for ${brand} web app`,
+        exportName: this.naming.exportName(`static-${brand}-bucket-domain`),
+        description: `S3 bucket regional domain for ${brand} static site`,
       });
     }
   }

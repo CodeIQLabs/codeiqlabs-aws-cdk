@@ -7,3 +7,4 @@ export * from './dns-records-stack';
 export * from './domain-delegation-stack';
 export * from './acm-waf-stack';
 export * from './cloudfront-distribution-stack';
+export * from './origin-zone-delegation-stack';
