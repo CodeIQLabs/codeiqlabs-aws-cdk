@@ -15,6 +15,8 @@ export interface GitHubRepositoryConfig {
   branch?: string;
   /** Allow version tags (e.g., 'v*.*.*') - defaults to true */
   allowTags?: boolean;
+  /** GitHub environments that can assume the role (e.g., ['nprd', 'prod']) */
+  environments?: string[];
 }
 
 export interface GitHubOidcStackProps extends BaseStackProps {
@@ -129,7 +131,13 @@ export class GitHubOidcStack extends BaseStack {
     const subjects: string[] = [];
 
     for (const repo of repositories) {
-      const { owner, repo: repoName, branch = 'main', allowTags = true } = repo;
+      const {
+        owner,
+        repo: repoName,
+        branch = 'main',
+        allowTags = true,
+        environments = [],
+      } = repo;
 
       // Allow the specified branch
       if (branch === '*') {
@@ -143,6 +151,13 @@ export class GitHubOidcStack extends BaseStack {
       // Allow version tags if enabled
       if (allowTags) {
         subjects.push('repo:' + owner + '/' + repoName + ':ref:refs/tags/v*');
+      }
+
+      // Allow GitHub environments (for jobs with environment: set)
+      // When a job uses an environment, the OIDC subject claim format is:
+      // repo:owner/repo:environment:environment_name
+      for (const env of environments) {
+        subjects.push('repo:' + owner + '/' + repoName + ':environment:' + env);
       }
     }
 
