@@ -1,7 +1,7 @@
 {
   "name": "@codeiqlabs/aws-cdk",
   "version": "1.3.0",
-  "description": "CodeIQLabs AWS CDK wrapper utilities for Level 1 and Level 2 abstractions",
+  "description": "Component-based AWS CDK framework for manifest-driven infrastructure orchestration",
   "type": "module",
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
@@ -62,7 +62,7 @@
     "url": "https://github.com/CodeIQLabs/codeiqlabs-aws-cdk"
   },
   "dependencies": {
-    "@codeiqlabs/aws-utils": "../codeiqlabs-aws-utils"
+    "@codeiqlabs/aws-utils": "^1.8.0"
   },
   "optionalDependencies": {
     "@rollup/rollup-linux-x64-gnu": "^4.21.0"

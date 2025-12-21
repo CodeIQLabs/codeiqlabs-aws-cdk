@@ -12,7 +12,7 @@ domain delegation from a manifest.**
 ## Key Features
 
 `@codeiqlabs/aws-cdk` is a CDK wrapper/framework that provides L2/L3 constructs and prebuilt stacks
-for:
+for complex multi-account AWS environments:
 
 - **AWS Organizations** – Create OUs, accounts, and org policies
 - **IAM Identity Center** – Users, groups, permission sets, and account assignments
@@ -306,5 +306,5 @@ MIT – See [LICENSE](./LICENSE) for details.
 
 ---
 
-**Part of the CodeIQLabs infrastructure ecosystem** - Component-based AWS CDK framework for
-manifest-driven infrastructure orchestration.
+**@codeiqlabs/aws-cdk** - Component-based AWS CDK framework for manifest-driven infrastructure
+orchestration. Built for multi-account AWS Organizations with Identity Center and domain management.
