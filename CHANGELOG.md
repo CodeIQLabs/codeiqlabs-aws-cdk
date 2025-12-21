@@ -1,5 +1,17 @@
 # @codeiqlabs/aws-cdk
 
+## 1.4.0
+
+### Minor Changes
+
+- 53d9524: Add AuroraServerlessStack provisioning (serverless v2 PostgreSQL, SSM endpoint, SG
+  ingress from ECS) and wire ECS API tasks to inject DATABASE*URL*\* secrets for all brands.
+
+### Patch Changes
+
+- db09567: Update dependencies: @codeiqlabs/aws-utils to ^1.9.0 and
+  @codeiqlabs/eslint-prettier-config to ^1.11.2
+
 ## 1.3.0
 
 ### Minor Changes
