@@ -268,7 +268,7 @@ export class CloudFrontDistributionStack extends BaseStack {
     }
 
     return new HttpOrigin(originHostname, {
-      protocolPolicy: OriginProtocolPolicy.HTTPS_ONLY,
+      protocolPolicy: OriginProtocolPolicy.HTTP_ONLY,
       httpPort: 80,
       httpsPort: 443,
     });

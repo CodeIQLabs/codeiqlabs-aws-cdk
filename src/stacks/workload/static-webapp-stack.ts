@@ -112,6 +112,9 @@ export class StaticWebAppStack extends BaseStack {
 
       // Add bucket policy for CloudFront OAC access from Management account
       // The CloudFront distribution in Management account will use OAC to access this bucket
+      // Per AWS docs, OAC requires AWS:SourceArn condition with the CloudFront distribution ARN
+      // We use a wildcard pattern since the distribution ID isn't known at bucket creation time
+      // See: https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/private-content-restricting-access-to-s3.html
       bucket.addToResourcePolicy(
         new iam.PolicyStatement({
           sid: 'AllowCloudFrontOAC',
@@ -120,8 +123,8 @@ export class StaticWebAppStack extends BaseStack {
           actions: ['s3:GetObject'],
           resources: [bucket.arnForObjects('*')],
           conditions: {
-            StringEquals: {
-              'AWS:SourceAccount': config.managementAccountId,
+            StringLike: {
+              'AWS:SourceArn': `arn:aws:cloudfront::${config.managementAccountId}:distribution/*`,
             },
           },
         }),

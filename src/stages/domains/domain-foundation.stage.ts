@@ -3,6 +3,7 @@ import type { Construct } from 'constructs';
 import type { ManifestConfig, BaseStageProps } from '../../application/types';
 import { RootDomainStack } from '../../stacks/domains/root-domain-stack';
 import { DomainDelegationStack } from '../../stacks/domains/domain-delegation-stack';
+import { OriginZoneDelegationStack } from '../../stacks/domains/origin-zone-delegation-stack';
 import { AcmAndWafStack } from '../../stacks/domains/acm-waf-stack';
 
 export interface DomainFoundationStageProps extends BaseStageProps {
@@ -16,6 +17,7 @@ export interface DomainFoundationStageProps extends BaseStageProps {
  * - Route53 public hosted zones for all brands
  * - ACM certificates (apex + wildcard) in us-east-1
  * - WAF Web ACLs (to be added) for prod/nprd
+ * - Origin zone NS delegation (origin-{env}.{brand} → workload accounts)
  */
 export class DomainFoundationStage extends cdk.Stage {
   constructor(scope: Construct, id: string, props: DomainFoundationStageProps) {
@@ -77,6 +79,27 @@ export class DomainFoundationStage extends cdk.Stage {
       });
 
       delegationStack.addDependency(rootDomainStack);
+    }
+
+    // 4. Origin zone delegation (if configured)
+    // Creates NS records delegating origin-{env}.{brand} to workload accounts
+    const hasOriginZoneDelegation = (cfg.domains as any)?.originZoneDelegation?.enabled;
+    const hasOriginZones = (cfg.domains as any)?.registeredDomains?.some(
+      (domain: any) => domain.originZones && Object.keys(domain.originZones).length > 0,
+    );
+
+    if (hasOriginZoneDelegation && hasOriginZones) {
+      const originZoneDelegationStack = new OriginZoneDelegationStack(
+        this,
+        'OriginZoneDelegation',
+        {
+          stackConfig,
+          config: cfg as any,
+          env: primaryEnv,
+        },
+      );
+
+      originZoneDelegationStack.addDependency(rootDomainStack);
     }
   }
 }
