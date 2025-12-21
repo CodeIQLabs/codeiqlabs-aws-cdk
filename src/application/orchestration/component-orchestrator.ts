@@ -14,7 +14,7 @@
  * **Architecture:**
  * - Creates stacks directly in the App (no CDK stages)
  * - Each enabled component gets its own CloudFormation stack
- * - Supports `cdk deploy --all` and `cdk deploy <StackName>`
+ * - Deploy with `cdk deploy <StackName ...>`; discover via `cdk list`
  * - Clean, discoverable stack names
  *
  * **What Gets Deployed Where:**
@@ -483,6 +483,10 @@ export class ComponentOrchestrator implements BaseOrchestrator {
                       databaseUrlSecretArns,
                       stripeSecretKeySecretArn:
                         secretsStack.getSecret('stripe-secret-key')?.secretArn,
+                      stripeWebhookSecretArn:
+                        secretsStack.getSecret('stripe-webhook-secret')?.secretArn,
+                      stripePublishableKeySecretArn:
+                        secretsStack.getSecret('stripe-publishable-key')?.secretArn,
                       authSecretArn: secretsStack.getSecret('auth-secret')?.secretArn,
                       googleOAuthSecretArns,
                     }

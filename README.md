@@ -183,7 +183,8 @@ organization:
 Deploy:
 
 ```bash
-cdk deploy --all
+# Deploy explicit stack names for your account(s)
+cdk deploy <StackName ...>
 ```
 
 **That's it!** The framework will:

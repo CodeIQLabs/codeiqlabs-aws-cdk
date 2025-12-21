@@ -207,6 +207,18 @@ export interface EcsSecretsConfig {
   stripeSecretKeySecretArn?: string;
 
   /**
+   * Stripe webhook signing secret ARN
+   * Injected as STRIPE_WEBHOOK_SECRET environment variable
+   */
+  stripeWebhookSecretArn?: string;
+
+  /**
+   * Stripe publishable key secret ARN
+   * Injected as STRIPE_PUBLISHABLE_KEY environment variable
+   */
+  stripePublishableKeySecretArn?: string;
+
+  /**
    * Auth.js secret ARN
    * Injected as AUTH_SECRET environment variable
    */
@@ -300,6 +312,8 @@ export class EcsFargateServiceStack extends BaseStack {
     // First brand in the array is always the default (for root path routing)
     const defaultBrand = config.brands[0];
     const isWebService = config.serviceType === 'webapp';
+    const envName = this.getStackConfig().environment;
+    const isProdEnv = envName === 'prod';
 
     const secretFromArn = (id: string, secretArn: string, field?: string) => {
       const secret = secretsmanager.Secret.fromSecretCompleteArn(this, id, secretArn);
@@ -383,6 +397,10 @@ export class EcsFargateServiceStack extends BaseStack {
       }
       if (secretsConfig.stripeSecretKeySecretArn)
         secretArns.push(secretsConfig.stripeSecretKeySecretArn);
+      if (secretsConfig.stripeWebhookSecretArn)
+        secretArns.push(secretsConfig.stripeWebhookSecretArn);
+      if (secretsConfig.stripePublishableKeySecretArn)
+        secretArns.push(secretsConfig.stripePublishableKeySecretArn);
       if (secretsConfig.authSecretArn) secretArns.push(secretsConfig.authSecretArn);
       if (secretsConfig.googleOAuthSecretArns) {
         secretArns.push(...Object.values(secretsConfig.googleOAuthSecretArns));
@@ -483,6 +501,18 @@ export class EcsFargateServiceStack extends BaseStack {
             secretsConfig.stripeSecretKeySecretArn,
           );
         }
+        if (secretsConfig.stripeWebhookSecretArn) {
+          containerSecrets['STRIPE_WEBHOOK_SECRET'] = secretFromArn(
+            `${brand}StripeWebhookSecret`,
+            secretsConfig.stripeWebhookSecretArn,
+          );
+        }
+        if (secretsConfig.stripePublishableKeySecretArn) {
+          containerSecrets['STRIPE_PUBLISHABLE_KEY'] = secretFromArn(
+            `${brand}StripePublishableKeySecret`,
+            secretsConfig.stripePublishableKeySecretArn,
+          );
+        }
         if (secretsConfig.authSecretArn) {
           containerSecrets['AUTH_SECRET'] = secretFromArn(
             `${brand}AuthSecret`,
@@ -513,6 +543,24 @@ export class EcsFargateServiceStack extends BaseStack {
       }
 
       // Add container to task definition
+      const marketingHost = isProdEnv ? `${brand}.com` : `nprd.${brand}.com`;
+      const webappHost = isProdEnv ? `app.${brand}.com` : `nprd-app.${brand}.com`;
+      const apiHost = isProdEnv ? `api.${brand}.com` : `nprd-api.${brand}.com`;
+
+      const containerEnv: Record<string, string> = {
+        BRAND: brand,
+        NEXT_PUBLIC_BRAND: brand,
+        NODE_ENV: isProdEnv ? 'production' : 'development',
+        NEXT_PUBLIC_ENV: envName,
+      };
+
+      if (isWebService) {
+        containerEnv.NEXT_PUBLIC_APP_URL = `https://${marketingHost}`;
+        containerEnv.NEXT_PUBLIC_BASE_DOMAIN = marketingHost;
+        containerEnv.NEXT_PUBLIC_WEBAPP_URL = `https://${webappHost}`;
+        containerEnv.EXPO_PUBLIC_API_URL = `https://${apiHost}`;
+      }
+
       taskDefinition.addContainer(`${brand}Container`, {
         containerName: brand,
         image: ecs.ContainerImage.fromEcrRepository(repository, 'latest'),
@@ -521,13 +569,7 @@ export class EcsFargateServiceStack extends BaseStack {
           streamPrefix: brand,
           logGroup,
         }),
-        environment: {
-          BRAND: brand,
-          NEXT_PUBLIC_BRAND: brand,
-          NODE_ENV: this.getStackConfig().environment === 'prod' ? 'production' : 'development',
-          // Add environment-specific URLs (these should be passed in via config in production)
-          NEXT_PUBLIC_ENV: this.getStackConfig().environment,
-        },
+        environment: containerEnv,
         secrets: Object.keys(containerSecrets).length > 0 ? containerSecrets : undefined,
       });
 

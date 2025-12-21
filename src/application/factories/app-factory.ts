@@ -31,8 +31,7 @@ import { createConfiguredApplication, FactoryError } from './factory-utils';
  * - Multi-environment components (networking) → environments[*].accountId
  *
  * **Deployment Options:**
- * - `cdk deploy --all` - Deploy all enabled component stacks
- * - `cdk deploy <StackName>` - Deploy individual stack
+ * - `cdk deploy <StackName ...>` - Deploy explicit stacks
  * - `cdk list` - See all stacks that will be created
  *
  * @param options - Optional configuration
