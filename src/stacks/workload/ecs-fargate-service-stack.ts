@@ -478,20 +478,31 @@ export class EcsFargateServiceStack extends BaseStack {
       // Build secrets map for container
       const containerSecrets: Record<string, ecs.Secret> = {};
       if (secretsConfig) {
-        if (secretsConfig.databaseUrlSecretArn) {
-          containerSecrets['DATABASE_URL'] = secretFromArn(
-            `${brand}DatabaseUrlSecret`,
-            secretsConfig.databaseUrlSecretArn,
-          );
-        }
-
-        if (config.appKind === 'api' && secretsConfig.databaseUrlSecretArns) {
-          for (const [key, arn] of Object.entries(secretsConfig.databaseUrlSecretArns)) {
-            if (!arn) continue;
-            const envKeySuffix = key.trim().length > 0 ? `_${key.toUpperCase()}` : '';
-            containerSecrets[`DATABASE_URL${envKeySuffix}`] = secretFromArn(
-              `${brand}${key}DatabaseUrlSecret`,
-              arn,
+        // For API services, inject DATABASE_URL_CORE from the core database secret
+        if (config.appKind === 'api') {
+          const coreDbArn = secretsConfig.databaseUrlSecretArns?.['core'];
+          if (coreDbArn) {
+            containerSecrets['DATABASE_URL_CORE'] = secretFromArn(
+              `${brand}CoreDatabaseUrlSecret`,
+              coreDbArn,
+            );
+          }
+          // For non-core brands, also inject DATABASE_URL_{BRAND}
+          if (brand !== 'core') {
+            const brandDbArn = secretsConfig.databaseUrlSecretArns?.[brand];
+            if (brandDbArn) {
+              containerSecrets[`DATABASE_URL_${brand.toUpperCase()}`] = secretFromArn(
+                `${brand}BrandDatabaseUrlSecret`,
+                brandDbArn,
+              );
+            }
+          }
+        } else {
+          // For non-API services (webapp), use the original DATABASE_URL pattern
+          if (secretsConfig.databaseUrlSecretArn) {
+            containerSecrets['DATABASE_URL'] = secretFromArn(
+              `${brand}DatabaseUrlSecret`,
+              secretsConfig.databaseUrlSecretArn,
             );
           }
         }
