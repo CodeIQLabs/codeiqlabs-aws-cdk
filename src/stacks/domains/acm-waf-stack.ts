@@ -9,16 +9,25 @@ import type { UnifiedAppConfig } from '@codeiqlabs/aws-utils';
 export interface AcmAndWafStackProps extends BaseStackProps {
   /** Unified application configuration from manifest */
   config: UnifiedAppConfig;
+  /** Allowed IP CIDRs for nprd WAF (optional) */
+  nprdAllowedCidrs?: string[];
 }
 
 /**
- * ACM + WAF Stack (Stage 1)
+ * ACM + WAF Stack
  *
- * Owns all CloudFront certificates and WAF Web ACLs that are independent of
- * workload ALBs. Certificates and Web ACLs are exported for consumption by
- * the CloudFrontDistributionStack in Stage 2.
+ * Creates CloudFront certificates and WAF Web ACLs.
+ * Domains are derived from saasApps (convention-over-configuration).
+ *
+ * Certificates: Combined apex + wildcard per domain (e.g., savvue.com + *.savvue.com)
+ * WAF: Environment-wide ACLs (prod = open, nprd = IP-restricted)
  */
 export class AcmAndWafStack extends BaseStack {
+  /** WAF Web ACL ARN for prod CloudFront distributions (open access) */
+  public readonly prodWebAclArn: string;
+  /** WAF Web ACL ARN for nprd CloudFront distributions (IP-restricted) */
+  public readonly nprdWebAclArn: string;
+
   constructor(scope: Construct, id: string, props: AcmAndWafStackProps) {
     super(scope, id, 'AcmAndWaf', props);
 
@@ -26,23 +35,45 @@ export class AcmAndWafStack extends BaseStack {
       throw new Error('AcmAndWafStack must be deployed in us-east-1 for CloudFront');
     }
 
+    // Derive domains from saasEdge or use explicit registeredDomains
+    const saasEdge = (props.config as any).saasEdge as any[] | undefined;
     const domainConfig = (props.config as any).domains;
-    if (!domainConfig?.enabled || !domainConfig.registeredDomains?.length) {
-      throw new Error('Domain configuration is required for AcmAndWafStack');
+
+    // Build unique domain list
+    const domainMap = new Map<string, { name: string; hostedZoneId?: string }>();
+
+    if (saasEdge) {
+      for (const app of saasEdge) {
+        if (!domainMap.has(app.domain)) {
+          domainMap.set(app.domain, { name: app.domain });
+        }
+      }
     }
 
-    // 1) Certificates per registered domain
-    domainConfig.registeredDomains.forEach((domain: any, domainIndex: number) => {
-      if (!domain.name) {
-        throw new Error(`Domain at index ${domainIndex} is missing required "name" field`);
+    if (domainConfig?.registeredDomains) {
+      for (const domain of domainConfig.registeredDomains) {
+        domainMap.set(domain.name, domain);
       }
+    }
 
+    if (domainMap.size === 0) {
+      throw new Error(
+        'No domains found. Provide saasEdge or domains.registeredDomains in manifest.',
+      );
+    }
+
+    // 1) Certificates per domain
+    let domainIndex = 0;
+    for (const domain of domainMap.values()) {
       const hostedZone = this.importHostedZone(domain, domainIndex);
       this.createCertificates(hostedZone, domainIndex);
-    });
+      domainIndex++;
+    }
 
     // 2) Environment-wide WAF Web ACLs (prod + nprd)
-    this.createWafWebAcls(domainConfig);
+    const { prodWebAclArn, nprdWebAclArn } = this.createWafWebAcls(props.nprdAllowedCidrs || []);
+    this.prodWebAclArn = prodWebAclArn;
+    this.nprdWebAclArn = nprdWebAclArn;
   }
 
   private importHostedZone(domain: any, domainIndex: number): IHostedZone {
@@ -107,25 +138,12 @@ export class AcmAndWafStack extends BaseStack {
 
   /**
    * Create environment-wide WAF Web ACLs for prod and nprd and export their ARNs.
+   * @returns Object containing prodWebAclArn and nprdWebAclArn
    */
-  private createWafWebAcls(domainConfig: any): void {
-    // Build environment-wide allowed CIDRs for nprd from manifest
-    const allNprdCidrs = new Set<string>();
-
-    for (const domain of domainConfig.registeredDomains ?? []) {
-      for (const sub of domain.subdomains ?? []) {
-        const cf = sub.cloudfront;
-        const w = cf?.wafConfig;
-        if (cf?.wafEnabled && w?.profile === 'nprd') {
-          for (const cidr of w.allowedIpCidrs ?? []) {
-            allNprdCidrs.add(cidr);
-          }
-        }
-      }
-    }
-
-    const nprdAllowedIpCidrs = Array.from(allNprdCidrs);
-
+  private createWafWebAcls(nprdAllowedIpCidrs: string[]): {
+    prodWebAclArn: string;
+    nprdWebAclArn: string;
+  } {
     // Prod Web ACL (open, can add managed rules later)
     const prodWebAcl = new wafv2.CfnWebACL(this, 'ProdWebAcl', {
       scope: 'CLOUDFRONT',
@@ -182,6 +200,11 @@ export class AcmAndWafStack extends BaseStack {
       description: 'WAF Web ACL ARN for nprd CloudFront distributions',
       exportName: this.naming.exportName('nprd-web-acl-arn'),
     });
+
+    return {
+      prodWebAclArn: prodWebAcl.attrArn,
+      nprdWebAclArn: nprdWebAcl.attrArn,
+    };
   }
 
   private sanitizeDomainName(domainName: string): string {

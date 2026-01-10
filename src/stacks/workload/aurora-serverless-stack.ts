@@ -9,14 +9,18 @@ import { BaseStack, BaseStackProps } from '../base';
 
 export interface AuroraServerlessStackProps extends BaseStackProps {
   /**
-   * VPC for the Aurora cluster (must include isolated subnets)
+   * VPC for the Aurora cluster (must include isolated subnets).
+   * If not provided, will be imported from SSM using convention:
+   * /codeiqlabs/saas/{env}/vpc/id
    */
-  vpc: ec2.IVpc;
+  vpc?: ec2.IVpc;
 
   /**
-   * ECS security group used to allow ingress to the database
+   * ECS security group used to allow ingress to the database.
+   * If not provided, will be imported from SSM using convention:
+   * /codeiqlabs/saas/{env}/vpc/ecs-security-group-id
    */
-  ecsSecurityGroup: ec2.ISecurityGroup;
+  ecsSecurityGroup?: ec2.ISecurityGroup;
 
   /**
    * Aurora configuration from manifest
@@ -40,17 +44,37 @@ export class AuroraServerlessStack extends BaseStack {
 
     const { config } = props;
     const stackConfig = this.getStackConfig();
+    const envName = stackConfig.environment;
+
+    // SSM parameter prefix for importing from customization-aws
+    const ssmPrefix = `/codeiqlabs/saas/${envName}`;
+
+    // Import VPC from SSM if not provided
+    const vpc =
+      props.vpc ??
+      ec2.Vpc.fromLookup(this, 'ImportedVpc', {
+        vpcId: ssm.StringParameter.valueFromLookup(this, `${ssmPrefix}/vpc/id`),
+      });
+
+    // Import ECS security group from SSM if not provided
+    const ecsSecurityGroup =
+      props.ecsSecurityGroup ??
+      ec2.SecurityGroup.fromSecurityGroupId(
+        this,
+        'ImportedEcsSg',
+        ssm.StringParameter.valueFromLookup(this, `${ssmPrefix}/vpc/ecs-security-group-id`),
+      );
 
     // Security group allowing ECS tasks to connect on 5432
     this.securityGroup = new ec2.SecurityGroup(this, 'AuroraSecurityGroup', {
-      vpc: props.vpc,
+      vpc,
       securityGroupName: this.naming.resourceName('aurora-sg'),
       description: 'Aurora PostgreSQL access from ECS tasks',
       allowAllOutbound: true,
     });
 
     this.securityGroup.addIngressRule(
-      props.ecsSecurityGroup,
+      ecsSecurityGroup,
       ec2.Port.tcp(5432),
       'Allow ECS tasks to access Aurora',
     );
@@ -85,7 +109,7 @@ export class AuroraServerlessStack extends BaseStack {
       cloudwatchLogsExports: ['postgresql'],
       copyTagsToSnapshot: true,
       enableDataApi: true,
-      vpc: props.vpc,
+      vpc,
       vpcSubnets: { subnetType: ec2.SubnetType.PRIVATE_ISOLATED },
       securityGroups: [this.securityGroup],
       removalPolicy: cdk.RemovalPolicy.SNAPSHOT,

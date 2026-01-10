@@ -46,8 +46,10 @@ export interface StaticSiteConfig {
 
   /**
    * Management account ID for CloudFront OAC access
+   * If not provided, will be looked up from SSM: /codeiqlabs/org/management-account-id
+   * @optional
    */
-  managementAccountId: string;
+  managementAccountId?: string;
 
   /**
    * Enable versioning on S3 buckets
@@ -95,6 +97,11 @@ export class StaticWebAppStack extends BaseStack {
     const config = props.siteConfig;
     const enableVersioning = config.enableVersioning ?? true;
 
+    // Get management account ID from config or SSM parameter
+    const managementAccountId =
+      config.managementAccountId ||
+      ssm.StringParameter.valueFromLookup(this, '/codeiqlabs/org/management-account-id');
+
     // Create S3 bucket for each brand
     for (const brand of config.brands) {
       // Create S3 bucket for static assets
@@ -124,7 +131,7 @@ export class StaticWebAppStack extends BaseStack {
           resources: [bucket.arnForObjects('*')],
           conditions: {
             StringLike: {
-              'AWS:SourceArn': `arn:aws:cloudfront::${config.managementAccountId}:distribution/*`,
+              'AWS:SourceArn': `arn:aws:cloudfront::${managementAccountId}:distribution/*`,
             },
           },
         }),

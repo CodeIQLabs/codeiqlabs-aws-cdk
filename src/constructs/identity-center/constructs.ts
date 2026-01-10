@@ -44,6 +44,41 @@ export class IdentityCenterConstruct extends Construct {
   /** Map of user keys to user IDs (for principalKey resolution) */
   private readonly userIds: Record<string, string> = {};
 
+  /**
+   * Generate a stable logical ID for an assignment based on its properties
+   *
+   * This ensures that assignments maintain the same CloudFormation logical ID
+   * even if the order changes in the manifest.
+   *
+   * Format: Assignment-{accountKey}-{permissionSetName}-{principalKey}
+   * Example: Assignment-codeiqlabs-saas-nprd-AdministratorAccess-amirf
+   *
+   * @param accountKey - The target account key (e.g., "codeiqlabs-saas-nprd")
+   * @param permissionSetName - The permission set name (e.g., "AdministratorAccess")
+   * @param principalKey - The principal key (e.g., "amirf")
+   * @returns Stable logical ID for the assignment
+   */
+  private generateStableAssignmentId(
+    accountKey: string,
+    permissionSetName: string,
+    principalKey: string,
+  ): string {
+    // Sanitize components to ensure valid CloudFormation logical ID
+    const sanitize = (str: string): string => {
+      return str
+        .replace(/[^a-zA-Z0-9-]/g, '') // Remove invalid characters
+        .split('-')
+        .map((segment) => segment.charAt(0).toUpperCase() + segment.slice(1).toLowerCase())
+        .join('');
+    };
+
+    const sanitizedAccount = sanitize(accountKey);
+    const sanitizedPermissionSet = sanitize(permissionSetName);
+    const sanitizedPrincipal = sanitize(principalKey);
+
+    return `Assignment${sanitizedAccount}${sanitizedPermissionSet}${sanitizedPrincipal}`;
+  }
+
   constructor(scope: Construct, id: string, props: IdentityCenterConstructProps) {
     super(scope, id);
 
@@ -91,8 +126,6 @@ export class IdentityCenterConstruct extends Construct {
 
     // Create assignments if provided
     if (props.assignments && props.accountIds) {
-      let assignmentCounter = 0;
-
       for (const assignmentConfig of props.assignments) {
         const permissionSetResult = this.permissionSets[assignmentConfig.permissionSetName];
         if (!permissionSetResult) {
@@ -120,7 +153,17 @@ export class IdentityCenterConstruct extends Construct {
             targetKeys: undefined, // Remove targetKeys from expanded config
           };
 
-          const assignment = new AssignmentConstruct(this, `Assignment${assignmentCounter}`, {
+          // Generate stable logical ID based on assignment properties
+          // Format: Assignment-{accountKey}-{permissionSetName}-{principalKey}
+          // Example: Assignment-codeiqlabs-saas-nprd-AdministratorAccess-amirf
+          const principalKey = expandedConfig.principalKey ?? 'unknown';
+          const logicalId = this.generateStableAssignmentId(
+            targetKey,
+            assignmentConfig.permissionSetName,
+            principalKey,
+          );
+
+          const assignment = new AssignmentConstruct(this, logicalId, {
             naming: props.naming,
             instanceArn: props.instanceArn,
             config: expandedConfig,
@@ -130,7 +173,6 @@ export class IdentityCenterConstruct extends Construct {
           });
 
           this.assignments.push(assignment.assignment);
-          assignmentCounter++;
         }
       }
     }

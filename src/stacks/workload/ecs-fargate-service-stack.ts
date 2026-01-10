@@ -1,14 +1,21 @@
 /**
  * ECS Fargate Service Stack for Workload Infrastructure
  *
- * Creates a shared ALB with path-based routing for multiple brand services.
+ * Creates a shared ALB with header-based routing for multiple brand services.
  * Each brand runs as a separate ECS Fargate service behind the shared ALB.
  *
  * Architecture:
  * - Shared ALB with HTTPS listener (references cross-account ACM certificate)
- * - Path-based routing: /brand1/* → Brand1 service, /brand2/* → Brand2 service, etc.
- * - Default route (/*) goes to the first brand in the array
+ * - Header-based routing: CloudFront sends X-Forwarded-Brand and X-Forwarded-Service headers
+ * - ALB listener rules match on these headers to route to the correct service
+ * - Webapp services: Route based on X-Forwarded-Brand (e.g., 'savvue', 'timisly')
+ * - API services: Route based on X-Forwarded-Service='api' (core API is catch-all)
  * - SSM parameter exports ALB DNS for cross-account CloudFront origin discovery
+ *
+ * Routing Examples:
+ * - https://app.savvue.com → CloudFront → ALB (X-Forwarded-Brand: savvue, X-Forwarded-Service: webapp) → savvue-webapp
+ * - https://app.timisly.com → CloudFront → ALB (X-Forwarded-Brand: timisly, X-Forwarded-Service: webapp) → timisly-webapp
+ * - https://api.savvue.com → CloudFront → ALB (X-Forwarded-Service: api) → core-api
  *
  * @example
  * ```typescript
@@ -27,7 +34,7 @@
  *   ecsSecurityGroup: vpcStack.ecsSecurityGroup,
  *   serviceConfig: {
  *     appKind: 'frontend',
- *     brands: ['acme', 'globex', 'initech'],  // First brand (acme) is the default
+ *     brands: ['acme', 'globex', 'initech'],
  *     certificateArn: 'arn:aws:acm:us-east-1:123456789012:certificate/xxx',
  *   },
  * });
@@ -42,7 +49,6 @@ import * as logs from 'aws-cdk-lib/aws-logs';
 import * as ecr from 'aws-cdk-lib/aws-ecr';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import * as ssm from 'aws-cdk-lib/aws-ssm';
-import * as acm from 'aws-cdk-lib/aws-certificatemanager';
 import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
 import type { Construct } from 'constructs';
 import { BaseStack, BaseStackProps } from '../base';
@@ -181,6 +187,13 @@ export interface EcsFargateServiceConfig {
    * If provided, secrets will be injected into containers as environment variables
    */
   secrets?: EcsSecretsConfig;
+
+  /**
+   * Stripe price IDs as plain environment variables (not secrets)
+   * For API services, all brand price IDs are injected
+   * For webapp services, only the specific brand's prices are injected
+   */
+  stripePrices?: EcsStripePriceConfig;
 }
 
 /**
@@ -201,22 +214,43 @@ export interface EcsSecretsConfig {
   databaseUrlSecretArns?: Record<string, string>;
 
   /**
+   * @deprecated Use stripeSecretKeySecretArns instead for multi-brand support
    * Stripe secret key secret ARN
    * Injected as STRIPE_SECRET_KEY environment variable
    */
   stripeSecretKeySecretArn?: string;
 
   /**
+   * @deprecated Use stripeWebhookSecretArns instead for multi-brand support
    * Stripe webhook signing secret ARN
    * Injected as STRIPE_WEBHOOK_SECRET environment variable
    */
   stripeWebhookSecretArn?: string;
 
   /**
+   * @deprecated Use stripePublishableKeySecretArns instead for multi-brand support
    * Stripe publishable key secret ARN
    * Injected as STRIPE_PUBLISHABLE_KEY environment variable
    */
   stripePublishableKeySecretArn?: string;
+
+  /**
+   * Map of brand name to Stripe secret key secret ARN
+   * Injected as STRIPE_SECRET_KEY_{BRAND.toUpperCase()} environment variables
+   */
+  stripeSecretKeySecretArns?: Record<string, string>;
+
+  /**
+   * Map of brand name to Stripe webhook secret ARN
+   * Injected as STRIPE_WEBHOOK_SECRET_{BRAND.toUpperCase()} environment variables
+   */
+  stripeWebhookSecretArns?: Record<string, string>;
+
+  /**
+   * Map of brand name to Stripe publishable key secret ARN
+   * Injected as STRIPE_PUBLISHABLE_KEY_{BRAND.toUpperCase()} environment variables
+   */
+  stripePublishableKeySecretArns?: Record<string, string>;
 
   /**
    * Auth.js secret ARN
@@ -233,6 +267,24 @@ export interface EcsSecretsConfig {
 }
 
 /**
+ * Stripe price configuration for ECS containers (non-secret environment variables)
+ * Price IDs are public identifiers and don't need to be stored as secrets
+ */
+export interface EcsStripePriceConfig {
+  /**
+   * Map of brand name to monthly price ID
+   * Injected as STRIPE_PRICE_ID_MONTHLY_{BRAND.toUpperCase()} environment variables
+   */
+  monthlyPriceIds?: Record<string, string>;
+
+  /**
+   * Map of brand name to annual price ID
+   * Injected as STRIPE_PRICE_ID_ANNUAL_{BRAND.toUpperCase()} environment variables
+   */
+  annualPriceIds?: Record<string, string>;
+}
+
+/**
  * Props for EcsFargateServiceStack
  */
 export interface EcsFargateServiceStackProps extends BaseStackProps {
@@ -243,9 +295,11 @@ export interface EcsFargateServiceStackProps extends BaseStackProps {
   componentName?: string;
 
   /**
-   * VPC where services will be deployed
+   * VPC where services will be deployed.
+   * If not provided, will be imported from SSM using convention:
+   * /codeiqlabs/saas/{env}/vpc/id
    */
-  vpc: ec2.IVpc;
+  vpc?: ec2.IVpc;
 
   /**
    * ECS cluster for the services
@@ -253,19 +307,30 @@ export interface EcsFargateServiceStackProps extends BaseStackProps {
   cluster: ecs.ICluster;
 
   /**
-   * Security group for the ALB
+   * Security group for the ALB.
+   * If not provided, will be imported from SSM using convention:
+   * /codeiqlabs/saas/{env}/alb/security-group-id
    */
-  albSecurityGroup: ec2.ISecurityGroup;
+  albSecurityGroup?: ec2.ISecurityGroup;
 
   /**
-   * Security group for ECS tasks
+   * Security group for ECS tasks.
+   * If not provided, will be imported from SSM using convention:
+   * /codeiqlabs/saas/{env}/vpc/ecs-security-group-id
    */
-  ecsSecurityGroup: ec2.ISecurityGroup;
+  ecsSecurityGroup?: ec2.ISecurityGroup;
 
   /**
    * Service configuration
    */
   serviceConfig: EcsFargateServiceConfig;
+
+  /**
+   * Pre-created ECR repositories keyed by brand name
+   * If provided, these repositories will be used instead of creating new ones
+   * This allows ECR repositories to be created in a separate stack for persistence
+   */
+  ecrRepositories?: Record<string, ecr.IRepository>;
 }
 
 /**
@@ -309,11 +374,47 @@ export class EcsFargateServiceStack extends BaseStack {
     const defaultCpu = config.defaultCpu ?? 256;
     const defaultMemoryMiB = config.defaultMemoryMiB ?? 512;
     const logRetentionDays = config.logRetentionDays ?? 30;
-    // First brand in the array is always the default (for root path routing)
-    const defaultBrand = config.brands[0];
     const isWebService = config.serviceType === 'webapp';
     const envName = this.getStackConfig().environment;
     const isProdEnv = envName === 'prod';
+
+    console.log(`[EcsFargateServiceStack] Constructor called for ${id}`);
+    console.log(
+      `[EcsFargateServiceStack] serviceId=${serviceId}, serviceLabel=${serviceLabel}, envName=${envName}`,
+    );
+    console.log(`[EcsFargateServiceStack] brands=${config.brands.join(',')}`);
+    console.log(
+      `[EcsFargateServiceStack] stack.account=${this.account}, stack.region=${this.region}`,
+    );
+    console.log(`[EcsFargateServiceStack] props.env=`, props.env);
+
+    // SSM parameter prefix for importing from customization-aws
+    const ssmPrefix = `/codeiqlabs/saas/${envName}`;
+    console.log(`[EcsFargateServiceStack] ssmPrefix=${ssmPrefix}`);
+
+    // Import VPC from SSM if not provided
+    const vpc =
+      props.vpc ??
+      ec2.Vpc.fromLookup(this, 'ImportedVpc', {
+        vpcId: ssm.StringParameter.valueFromLookup(this, `${ssmPrefix}/vpc/id`),
+      });
+
+    // Import security groups from SSM if not provided
+    const albSecurityGroup =
+      props.albSecurityGroup ??
+      ec2.SecurityGroup.fromSecurityGroupId(
+        this,
+        'ImportedAlbSg',
+        ssm.StringParameter.valueFromLookup(this, `${ssmPrefix}/alb/security-group-id`),
+      );
+
+    const ecsSecurityGroup =
+      props.ecsSecurityGroup ??
+      ec2.SecurityGroup.fromSecurityGroupId(
+        this,
+        'ImportedEcsSg',
+        ssm.StringParameter.valueFromLookup(this, `${ssmPrefix}/vpc/ecs-security-group-id`),
+      );
 
     const secretFromArn = (id: string, secretArn: string, field?: string) => {
       const secret = secretsmanager.Secret.fromSecretCompleteArn(this, id, secretArn);
@@ -322,61 +423,45 @@ export class EcsFargateServiceStack extends BaseStack {
         : ecs.Secret.fromSecretsManager(secret);
     };
 
-    // Create Application Load Balancer
-    // ALB names have a 32 character limit, so we use a shorter naming pattern
-    // Pattern: {env}-{appKind}-alb (e.g., "nprd-marketing-alb")
-    const albName = `${this.getStackConfig().environment}-${serviceLabel}-alb`;
-    this.alb = new elbv2.ApplicationLoadBalancer(this, 'Alb', {
-      loadBalancerName: albName.substring(0, 32), // Ensure max 32 chars
-      vpc: props.vpc,
-      internetFacing: true,
-      securityGroup: props.albSecurityGroup,
-    });
+    // Import ALB and HTTPS listener from customization-aws via SSM
+    const albArnPath = `${ssmPrefix}/alb/arn`;
+    console.log(`[EcsFargateServiceStack] Looking up SSM parameter: ${albArnPath}`);
+    const albArn = ssm.StringParameter.valueFromLookup(this, albArnPath);
+    console.log(`[EcsFargateServiceStack] ALB ARN from SSM: ${albArn}`);
 
-    // Create listener based on whether certificate is provided
-    // If no certificate, use HTTP only (CloudFront handles SSL termination)
-    let primaryListener: elbv2.IApplicationListener;
+    const albDnsName = ssm.StringParameter.valueFromLookup(this, `${ssmPrefix}/alb/dns-name`);
+    const albCanonicalHostedZoneId = ssm.StringParameter.valueFromLookup(
+      this,
+      `${ssmPrefix}/alb/canonical-hosted-zone-id`,
+    );
+    const httpsListenerArn = ssm.StringParameter.valueFromLookup(
+      this,
+      `${ssmPrefix}/alb/https-listener-arn`,
+    );
 
-    if (config.certificateArn) {
-      // Import the ACM certificate from Management account
-      const certificate = acm.Certificate.fromCertificateArn(
-        this,
-        'Certificate',
-        config.certificateArn,
-      );
+    console.log(`[EcsFargateServiceStack] ssmPrefix=${ssmPrefix}`);
+    console.log(`[EcsFargateServiceStack] albArn=${albArn}, albDnsName=${albDnsName}`);
 
-      // Create HTTPS listener
-      primaryListener = this.alb.addListener('HttpsListener', {
-        port: 443,
-        protocol: elbv2.ApplicationProtocol.HTTPS,
-        certificates: [certificate],
-        defaultAction: elbv2.ListenerAction.fixedResponse(404, {
-          contentType: 'text/plain',
-          messageBody: 'Not Found',
-        }),
-      });
+    this.alb = elbv2.ApplicationLoadBalancer.fromApplicationLoadBalancerAttributes(
+      this,
+      'ImportedAlb',
+      {
+        loadBalancerArn: albArn,
+        loadBalancerDnsName: albDnsName,
+        loadBalancerCanonicalHostedZoneId: albCanonicalHostedZoneId,
+        securityGroupId: albSecurityGroup.securityGroupId,
+      },
+    );
 
-      // Create HTTP listener that redirects to HTTPS
-      this.alb.addListener('HttpListener', {
-        port: 80,
-        protocol: elbv2.ApplicationProtocol.HTTP,
-        defaultAction: elbv2.ListenerAction.redirect({
-          protocol: 'HTTPS',
-          port: '443',
-          permanent: true,
-        }),
-      });
-    } else {
-      // HTTP-only mode (CloudFront handles SSL termination)
-      primaryListener = this.alb.addListener('HttpListener', {
-        port: 80,
-        protocol: elbv2.ApplicationProtocol.HTTP,
-        defaultAction: elbv2.ListenerAction.fixedResponse(404, {
-          contentType: 'text/plain',
-          messageBody: 'Not Found',
-        }),
-      });
-    }
+    // Import HTTPS listener (HTTP listener removed - HTTPS only)
+    const httpsListener = elbv2.ApplicationListener.fromApplicationListenerAttributes(
+      this,
+      'ImportedHttpsListener',
+      {
+        listenerArn: httpsListenerArn,
+        securityGroup: albSecurityGroup,
+      },
+    );
 
     // Create ECS task execution role (shared across all services)
     const taskExecutionRole = new iam.Role(this, 'TaskExecutionRole', {
@@ -395,12 +480,23 @@ export class EcsFargateServiceStack extends BaseStack {
       if (secretsConfig.databaseUrlSecretArns) {
         secretArns.push(...Object.values(secretsConfig.databaseUrlSecretArns));
       }
+      // Legacy single Stripe secrets (deprecated)
       if (secretsConfig.stripeSecretKeySecretArn)
         secretArns.push(secretsConfig.stripeSecretKeySecretArn);
       if (secretsConfig.stripeWebhookSecretArn)
         secretArns.push(secretsConfig.stripeWebhookSecretArn);
       if (secretsConfig.stripePublishableKeySecretArn)
         secretArns.push(secretsConfig.stripePublishableKeySecretArn);
+      // Brand-specific Stripe secrets
+      if (secretsConfig.stripeSecretKeySecretArns) {
+        secretArns.push(...Object.values(secretsConfig.stripeSecretKeySecretArns));
+      }
+      if (secretsConfig.stripeWebhookSecretArns) {
+        secretArns.push(...Object.values(secretsConfig.stripeWebhookSecretArns));
+      }
+      if (secretsConfig.stripePublishableKeySecretArns) {
+        secretArns.push(...Object.values(secretsConfig.stripePublishableKeySecretArns));
+      }
       if (secretsConfig.authSecretArn) secretArns.push(secretsConfig.authSecretArn);
       if (secretsConfig.googleOAuthSecretArns) {
         secretArns.push(...Object.values(secretsConfig.googleOAuthSecretArns));
@@ -427,7 +523,15 @@ export class EcsFargateServiceStack extends BaseStack {
     });
 
     // Create services for each brand
-    let priority = 1;
+    // Assign different priority ranges based on service type to avoid conflicts
+    // when multiple service types share the same ALB listener:
+    // - webapp: 1-99 (header-based routing on X-Forwarded-Brand)
+    // - api: 100-199 (header-based routing on X-Forwarded-Service)
+    // - worker: 200-299 (if needed in future)
+    // Note: No catch-all rules needed - CloudFront always sends headers
+    const priorityOffset =
+      config.serviceType === 'webapp' ? 0 : config.serviceType === 'api' ? 100 : 200;
+    let priority = 1 + priorityOffset;
     for (const brand of config.brands) {
       const brandConfig = config.brandConfigs?.[brand] ?? {};
       const containerPort = brandConfig.containerPort ?? defaultContainerPort;
@@ -435,30 +539,38 @@ export class EcsFargateServiceStack extends BaseStack {
       const desiredCount = brandConfig.desiredCount ?? defaultDesiredCount;
       const cpu = brandConfig.cpu ?? defaultCpu;
       const memoryMiB = brandConfig.memoryMiB ?? defaultMemoryMiB;
-      // For web we scope resources by brand; for non-web we scope by serviceName if provided
-      const resourceBrand = isWebService ? brand : (config.serviceName ?? undefined);
+      // Always use brand name for resource naming to ensure uniqueness
+      // This prevents concurrent task definition creation errors when multiple brands
+      // are deployed in the same stack (e.g., core, savvue, equitrio for API services)
+      const resourceBrand = brand;
 
-      // Create ECR repository for this brand
-      const repository = new ecr.Repository(this, `${brand}Repository`, {
-        repositoryName: this.naming
-          .resourceName(serviceId, {
-            brand: resourceBrand,
-          })
-          .toLowerCase(),
-        removalPolicy: cdk.RemovalPolicy.RETAIN,
-        lifecycleRules: [
-          {
-            maxImageCount: 10,
-            description: 'Keep only 10 images',
-          },
-        ],
-      });
+      // Use pre-created ECR repository if provided, otherwise create one
+      let repository: ecr.IRepository;
+      if (props.ecrRepositories?.[brand]) {
+        repository = props.ecrRepositories[brand];
+      } else {
+        repository = new ecr.Repository(this, `${brand}Repository`, {
+          repositoryName: this.naming
+            .resourceName(serviceId, {
+              brand: resourceBrand,
+            })
+            .toLowerCase(),
+          removalPolicy: cdk.RemovalPolicy.RETAIN,
+          lifecycleRules: [
+            {
+              maxImageCount: 10,
+              description: 'Keep only 10 images',
+            },
+          ],
+        });
+      }
       this.repositories.set(brand, repository);
 
       // Create CloudWatch log group
+      // Always use brand name for log groups to ensure uniqueness
       const logGroup = new logs.LogGroup(this, `${brand}LogGroup`, {
         logGroupName: `/ecs/${this.naming.resourceName(serviceId, {
-          brand: resourceBrand,
+          brand: brand,
         })}`,
         retention: logRetentionDays,
         removalPolicy: cdk.RemovalPolicy.DESTROY,
@@ -478,16 +590,18 @@ export class EcsFargateServiceStack extends BaseStack {
       // Build secrets map for container
       const containerSecrets: Record<string, ecs.Secret> = {};
       if (secretsConfig) {
-        // For API services, inject DATABASE_URL_CORE from the core database secret
+        // For API services, inject DATABASE_URL_CORE for all APIs
+        // Brand APIs also need DATABASE_URL_{BRAND} for their brand-specific database
         if (config.appKind === 'api') {
           const coreDbArn = secretsConfig.databaseUrlSecretArns?.['core'];
           if (coreDbArn) {
+            // All API services need DATABASE_URL_CORE for the core database
             containerSecrets['DATABASE_URL_CORE'] = secretFromArn(
               `${brand}CoreDatabaseUrlSecret`,
               coreDbArn,
             );
           }
-          // For non-core brands, also inject DATABASE_URL_{BRAND}
+          // Brand-specific APIs also need DATABASE_URL_{BRAND} for their brand database
           if (brand !== 'core') {
             const brandDbArn = secretsConfig.databaseUrlSecretArns?.[brand];
             if (brandDbArn) {
@@ -506,6 +620,7 @@ export class EcsFargateServiceStack extends BaseStack {
             );
           }
         }
+        // Legacy single Stripe secrets (deprecated - kept for backward compatibility)
         if (secretsConfig.stripeSecretKeySecretArn) {
           containerSecrets['STRIPE_SECRET_KEY'] = secretFromArn(
             `${brand}StripeSecretKeySecret`,
@@ -523,6 +638,40 @@ export class EcsFargateServiceStack extends BaseStack {
             `${brand}StripePublishableKeySecret`,
             secretsConfig.stripePublishableKeySecretArn,
           );
+        }
+
+        // Brand-specific Stripe secrets
+        // For API services (especially core API), inject ALL brand Stripe secrets
+        // For webapp services, only inject the specific brand's secrets
+        const stripeBrands =
+          config.appKind === 'api'
+            ? Object.keys(secretsConfig.stripeSecretKeySecretArns ?? {})
+            : [brand];
+
+        for (const stripeBrand of stripeBrands) {
+          const secretKeyArn = secretsConfig.stripeSecretKeySecretArns?.[stripeBrand];
+          if (secretKeyArn) {
+            containerSecrets[`STRIPE_SECRET_KEY_${stripeBrand.toUpperCase()}`] = secretFromArn(
+              `${brand}${stripeBrand}StripeSecretKeySecret`,
+              secretKeyArn,
+            );
+          }
+
+          const webhookSecretArn = secretsConfig.stripeWebhookSecretArns?.[stripeBrand];
+          if (webhookSecretArn) {
+            containerSecrets[`STRIPE_WEBHOOK_SECRET_${stripeBrand.toUpperCase()}`] = secretFromArn(
+              `${brand}${stripeBrand}StripeWebhookSecret`,
+              webhookSecretArn,
+            );
+          }
+
+          const publishableKeyArn = secretsConfig.stripePublishableKeySecretArns?.[stripeBrand];
+          if (publishableKeyArn) {
+            containerSecrets[`STRIPE_PUBLISHABLE_KEY_${stripeBrand.toUpperCase()}`] = secretFromArn(
+              `${brand}${stripeBrand}StripePublishableKeySecret`,
+              publishableKeyArn,
+            );
+          }
         }
         if (secretsConfig.authSecretArn) {
           containerSecrets['AUTH_SECRET'] = secretFromArn(
@@ -572,6 +721,29 @@ export class EcsFargateServiceStack extends BaseStack {
         containerEnv.EXPO_PUBLIC_API_URL = `https://${apiHost}`;
       }
 
+      // Add Stripe price IDs as environment variables (non-secret, public identifiers)
+      const stripePricesConfig = config.stripePrices;
+      if (stripePricesConfig) {
+        // For API services (especially core API), inject ALL brand price IDs
+        // For webapp services, only inject the specific brand's prices
+        const priceBrands =
+          config.appKind === 'api'
+            ? Object.keys(stripePricesConfig.monthlyPriceIds ?? {})
+            : [brand];
+
+        for (const priceBrand of priceBrands) {
+          const monthlyPriceId = stripePricesConfig.monthlyPriceIds?.[priceBrand];
+          if (monthlyPriceId) {
+            containerEnv[`STRIPE_PRICE_ID_MONTHLY_${priceBrand.toUpperCase()}`] = monthlyPriceId;
+          }
+
+          const annualPriceId = stripePricesConfig.annualPriceIds?.[priceBrand];
+          if (annualPriceId) {
+            containerEnv[`STRIPE_PRICE_ID_ANNUAL_${priceBrand.toUpperCase()}`] = annualPriceId;
+          }
+        }
+      }
+
       taskDefinition.addContainer(`${brand}Container`, {
         containerName: brand,
         image: ecs.ContainerImage.fromEcrRepository(repository, 'latest'),
@@ -585,14 +757,15 @@ export class EcsFargateServiceStack extends BaseStack {
       });
 
       // Create Fargate service
+      // Always use actual brand name for service names to ensure uniqueness
       const service = new ecs.FargateService(this, `${brand}Service`, {
         serviceName: this.naming.resourceName(serviceId, {
-          brand: resourceBrand,
+          brand: brand,
         }),
         cluster: props.cluster,
         taskDefinition,
         desiredCount,
-        securityGroups: [props.ecsSecurityGroup],
+        securityGroups: [ecsSecurityGroup],
         vpcSubnets: { subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS },
         assignPublicIp: false,
         // Enable circuit breaker without rollback - allows deployment to complete
@@ -603,13 +776,14 @@ export class EcsFargateServiceStack extends BaseStack {
       this.services.set(brand, service);
 
       // Create target group
+      // Always use actual brand name for target groups to ensure uniqueness
       const targetGroup = new elbv2.ApplicationTargetGroup(this, `${brand}TargetGroup`, {
         targetGroupName: this.naming
           .resourceName(`${serviceId}-tg`, {
-            brand: resourceBrand,
+            brand: brand,
           })
           .substring(0, 32),
-        vpc: props.vpc,
+        vpc,
         port: containerPort,
         protocol: elbv2.ApplicationProtocol.HTTP,
         targetType: elbv2.TargetType.IP,
@@ -623,23 +797,41 @@ export class EcsFargateServiceStack extends BaseStack {
         targets: [service],
       });
 
-      // Add listener rule for this brand
-      if (brand === defaultBrand) {
-        // Default brand gets the catch-all rule (lowest priority)
-        primaryListener.addAction(`${brand}Action`, {
-          priority: 1000,
-          conditions: [elbv2.ListenerCondition.pathPatterns(['/*'])],
-          action: elbv2.ListenerAction.forward([targetGroup]),
-        });
-      } else {
-        // Other brands get path-based routing
-        const pathPattern = brandConfig.pathPattern ?? `/${brand}/*`;
-        primaryListener.addAction(`${brand}Action`, {
-          priority: brandConfig.priority ?? priority++,
-          conditions: [elbv2.ListenerCondition.pathPatterns([pathPattern])],
-          action: elbv2.ListenerAction.forward([targetGroup]),
-        });
+      // Add listener rule for this brand (HTTPS only)
+      // Use header-based routing instead of path-based routing
+      // CloudFront sends X-Forwarded-Brand and X-Forwarded-Service headers
+      // This allows multiple CloudFront distributions to share the same ALB origin
+
+      // For webapp services: Match on X-Forwarded-Brand header
+      // For api services: Match on X-Forwarded-Service header (since API is shared across brands)
+      const conditions: elbv2.ListenerCondition[] = [];
+
+      if (config.serviceType === 'webapp') {
+        // Webapp: Route based on brand (e.g., X-Forwarded-Brand: savvue)
+        conditions.push(
+          elbv2.ListenerCondition.httpHeader('X-Forwarded-Brand', [brand]),
+          elbv2.ListenerCondition.httpHeader('X-Forwarded-Service', ['webapp']),
+        );
+      } else if (config.serviceType === 'api') {
+        // API: Route based on service type and optionally brand
+        if (brand === 'core') {
+          // Core API: Match only on service type (catch-all for API requests)
+          conditions.push(elbv2.ListenerCondition.httpHeader('X-Forwarded-Service', ['api']));
+        } else {
+          // Brand-specific API: Match on both service type and brand
+          conditions.push(
+            elbv2.ListenerCondition.httpHeader('X-Forwarded-Brand', [brand]),
+            elbv2.ListenerCondition.httpHeader('X-Forwarded-Service', ['api']),
+          );
+        }
       }
+
+      // Add the listener rule
+      httpsListener.addAction(`${brand}Action`, {
+        priority: brandConfig.priority ?? priority++,
+        conditions,
+        action: elbv2.ListenerAction.forward([targetGroup]),
+      });
     }
 
     // Create SSM parameter for ALB DNS (for cross-account CloudFront origin discovery)

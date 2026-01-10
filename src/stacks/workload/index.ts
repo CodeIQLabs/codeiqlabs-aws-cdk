@@ -8,14 +8,15 @@
  * - VpcStack: VPC with public/private/isolated subnets
  * - EcsClusterStack: ECS cluster with container insights
  * - EcsFargateServiceStack: Fargate service with ALB and SSM parameter
- * - StaticWebAppStack: S3 bucket for static web app hosting
+ * - EcrRepositoryStack: ECR repositories for container images
+ * - SaasSecretsStack: Secrets Manager secrets for SaaS applications
+ * - AuroraServerlessStack: Aurora Serverless v2 PostgreSQL database
  * - OriginHostedZoneStack: Route53 origin zones with Alias records to ALBs
  */
-
 export * from './vpc-stack';
 export * from './ecs-cluster-stack';
 export * from './ecs-fargate-service-stack';
-export * from './static-webapp-stack';
+export * from './ecr-repository-stack';
 export * from './saas-secrets-stack';
 export * from './aurora-serverless-stack';
 export * from './origin-hosted-zone-stack';

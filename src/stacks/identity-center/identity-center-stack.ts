@@ -57,11 +57,9 @@ export class ManagementIdentityCenterStack extends BaseStack {
 
     const { identityCenter } = props.config;
 
-    // Validate that Identity Center is enabled
-    if (!identityCenter?.enabled) {
-      throw new Error(
-        'Identity Center must be enabled in manifest configuration to use this stack',
-      );
+    // Validate that Identity Center config is present (presence implies enabled)
+    if (!identityCenter) {
+      throw new Error('Identity Center must be configured in manifest to use this stack');
     }
 
     // Validate required tags

@@ -48,7 +48,7 @@ export interface GitHubOidcStackProps extends BaseStackProps {
  * The stack creates:
  * - OIDC Identity Provider for GitHub Actions (if not already exists)
  * - IAM Role with trust policy for specified GitHub repositories
- * - Permissions for ECR push, ECS update, and S3 deployment
+ * - Permissions for ECR push, ECS update, S3 deployment, CloudFront invalidation, and SSM parameter access
  */
 export class GitHubOidcStack extends BaseStack {
   /** The OIDC provider for GitHub Actions */
@@ -110,6 +110,7 @@ export class GitHubOidcStack extends BaseStack {
     this.addEcsPermissions(ecsClusterPrefix, accountId, region);
     this.addS3Permissions(s3BucketPrefix);
     this.addSsmPermissions();
+    this.addCloudFrontPermissions(accountId);
 
     this.roleArn = this.role.roleArn;
 
@@ -250,6 +251,17 @@ export class GitHubOidcStack extends BaseStack {
         effect: iam.Effect.ALLOW,
         actions: ['ssm:GetParameter', 'ssm:GetParameters', 'ssm:GetParametersByPath'],
         resources: [`arn:aws:ssm:*:${cdk.Stack.of(this).account}:parameter${ssmParameterPrefix}`],
+      }),
+    );
+  }
+
+  private addCloudFrontPermissions(accountId: string): void {
+    this.role.addToPolicy(
+      new iam.PolicyStatement({
+        sid: 'CloudFrontInvalidation',
+        effect: iam.Effect.ALLOW,
+        actions: ['cloudfront:CreateInvalidation'],
+        resources: [`arn:aws:cloudfront::${accountId}:distribution/*`],
       }),
     );
   }

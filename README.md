@@ -222,7 +222,7 @@ codeiqlabs-aws-cdk/
 └── package.json
 ```
 
-**Full reference:** See [Complete File Reference](./FILE-REFERENCE.md)
+**Full reference:** See [AGENTS.md](./AGENTS.md) for detailed file structure
 
 ## Usage Patterns
 
@@ -288,7 +288,7 @@ npm run test:esm
 
 ## Status & Compatibility
 
-- **Current Version:** 1.3.0
+- **Current Version:** See badge above or [package.json](./package.json)
 - **AWS CDK Compatibility:** v2.213.0+
 - **Node.js:** 18.0.0+
 - **TypeScript:** 5.0+

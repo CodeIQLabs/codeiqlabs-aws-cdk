@@ -58,8 +58,8 @@ export class ManagementOrganizationsStack extends BaseStack {
 
     const { organization } = props.config;
 
-    // Only create organization construct if enabled
-    if (organization?.enabled) {
+    // Create organization construct (presence in manifest implies enabled)
+    if (organization) {
       this.organizationConstruct = new OrganizationConstruct(this, 'Organization', {
         naming: this.naming,
         mode: organization.mode,

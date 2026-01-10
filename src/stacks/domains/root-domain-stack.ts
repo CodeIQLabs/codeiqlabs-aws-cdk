@@ -1,6 +1,8 @@
 import { Construct } from 'constructs';
 import { CfnOutput, Fn } from 'aws-cdk-lib';
 import { HostedZone, IHostedZone } from 'aws-cdk-lib/aws-route53';
+import * as iam from 'aws-cdk-lib/aws-iam';
+import * as ssm from 'aws-cdk-lib/aws-ssm';
 import { BaseStack, type BaseStackProps } from '../base/base-stack';
 import { Route53HostedZoneConstruct } from '../../constructs/route53/constructs';
 import type { UnifiedAppConfig } from '@codeiqlabs/aws-utils';
@@ -8,50 +10,32 @@ import type { UnifiedAppConfig } from '@codeiqlabs/aws-utils';
 /**
  * Root Domain Stack
  *
- * This stack manages Route53 hosted zones for all registered domains in the management account.
- * It creates or imports hosted zones and exports their IDs and name servers for use by other stacks.
+ * Manages Route53 hosted zones and cross-account delegation roles in the management account.
  *
  * **Architecture:**
  * - Deployed in Management Account
- * - Creates/imports Route53 hosted zones for each registered domain
- * - Exports hosted zone IDs for CloudFront and DNS stacks
+ * - Creates/imports Route53 hosted zones for each domain
+ * - Creates per-domain IAM delegation roles for subdomain delegation
+ * - Exports hosted zone IDs and role ARNs to SSM for workload accounts
  * - Exports name servers for domain registrar configuration
  *
- * **Features:**
- * - Automatic hosted zone creation for new domains
- * - Import existing hosted zones by ID
- * - Consistent naming and tagging
- * - CloudFormation exports for cross-stack references
- *
- * **Usage:**
- * ```typescript
- * new RootDomainStack(this, 'RootDomain', {
- *   stackConfig: {
- *     project: 'CodeIQLabs',
- *     environment: 'mgmt',
- *     region: 'us-east-1',
- *     accountId: '682475224767',
- *     owner: 'CodeIQLabs',
- *     company: 'CodeIQLabs',
- *   },
- *   config: manifestConfig, // Must include domains configuration
- * });
- * ```
+ * **Cross-Account Subdomain Delegation:**
+ * For domains with createDelegationRole: true, creates an IAM role that allows
+ * workload accounts to create NS records for subdomain delegation.
+ * Example: NonProd account can create NS record for nprd.savvue.com in savvue.com zone.
  *
  * **Manifest Configuration:**
  * ```yaml
  * domains:
- *   enabled: true
  *   registeredDomains:
- *     - name: "example.com"
- *       hostedZoneId: "Z1234567890ABC"  # Optional - import existing
- *       registrar: "route53"
- *       autoRenew: true
- *     - name: "newdomain.com"
- *       # No hostedZoneId - will create new hosted zone
- *       registrar: "route53"
+ *     - name: "codeiqlabs.com"
+ *       createDelegationRole: false  # Marketing-only
+ *     - name: "savvue.com"
+ *       createDelegationRole: true
+ *       allowedEnvironments: [nprd, prod]
  * ```
  *
+ * **Deployment Order:** Deploy this stack BEFORE workload SubdomainZoneStack
  * **Deployment Frequency:** Rare (only when adding new domains)
  */
 
@@ -70,22 +54,27 @@ export class RootDomainStack extends BaseStack {
   constructor(scope: Construct, id: string, props: RootDomainStackProps) {
     super(scope, id, 'RootDomain', props);
 
-    // TODO: Fix type issue with domains property
-    const domainConfig = (props.config as any).domains;
-    if (!domainConfig?.enabled || !domainConfig.registeredDomains?.length) {
-      throw new Error('Domain configuration is required for root domain stack');
+    // Get registeredDomains from manifest (domains.registeredDomains)
+    const registeredDomains = (props.config.domains as any)?.registeredDomains as any[] | undefined;
+
+    if (!registeredDomains || registeredDomains.length === 0) {
+      throw new Error(
+        'No domains.registeredDomains found in manifest. Please configure domains.registeredDomains array.',
+      );
     }
 
-    // Create or import hosted zones for each registered domain
-    domainConfig.registeredDomains.forEach((domain: any, index: number) => {
-      this.createOrImportHostedZone(domain, index);
-    });
+    // Create or import hosted zones for each domain
+    let index = 0;
+    for (const domain of registeredDomains) {
+      this.createOrImportHostedZone(domain, index++, props.config);
+    }
   }
 
   /**
    * Creates a new hosted zone or imports an existing one
+   * Also creates delegation role if createDelegationRole is true
    */
-  private createOrImportHostedZone(domain: any, index: number): void {
+  private createOrImportHostedZone(domain: any, index: number, config: UnifiedAppConfig): void {
     // Validate domain configuration
     if (!domain.name) {
       throw new Error(`Domain at index ${index} is missing required "name" field`);
@@ -145,6 +134,107 @@ export class RootDomainStack extends BaseStack {
       value: domainName,
       description: `Zone name for ${domainName}`,
       exportName: this.naming.exportName(`${this.sanitizeDomainName(domainName)}-zone-name`),
+    });
+
+    // Store zone ID in SSM for workload accounts to reference
+    new ssm.StringParameter(this, `${this.sanitizeDomainName(domainName)}ZoneIdParam`, {
+      parameterName: `/codeiqlabs/route53/${domainName}/zone-id`,
+      stringValue: hostedZone.hostedZoneId,
+      description: `Hosted zone ID for ${domainName}`,
+      tier: ssm.ParameterTier.STANDARD,
+    });
+
+    // Create delegation role if requested
+    if (domain.createDelegationRole) {
+      this.createDelegationRole(
+        domainName,
+        hostedZone,
+        domain.allowedEnvironments || [],
+        config,
+        index,
+      );
+    }
+  }
+
+  /**
+   * Creates a cross-account delegation role for subdomain delegation
+   * Allows workload accounts to create NS records in this hosted zone
+   */
+  private createDelegationRole(
+    domainName: string,
+    hostedZone: IHostedZone,
+    allowedEnvironments: string[],
+    config: UnifiedAppConfig,
+    index: number,
+  ): void {
+    // Resolve account IDs from environment names
+    const environments = (config as any).environments;
+    const allowedAccounts = allowedEnvironments
+      .map((env) => {
+        const envConfig = environments[env];
+        if (!envConfig?.accountId) {
+          throw new Error(`Environment ${env} not found or missing accountId in manifest`);
+        }
+        return envConfig.accountId;
+      })
+      .filter((accountId) => accountId); // Filter out any undefined values
+
+    if (allowedAccounts.length === 0) {
+      throw new Error(
+        `No valid accounts found for delegation role for ${domainName}. Check allowedEnvironments.`,
+      );
+    }
+
+    // Create role name: Route53-Delegation-savvue-com
+    const roleName = `Route53-Delegation-${domainName.replace(/\./g, '-')}`;
+
+    // Create IAM role with cross-account trust
+    const delegationRole = new iam.Role(this, `DelegationRole${index}`, {
+      roleName,
+      description: `Allows workload accounts to create NS delegation records in ${domainName} hosted zone`,
+      assumedBy: new iam.CompositePrincipal(
+        ...allowedAccounts.map((accountId) => new iam.AccountPrincipal(accountId)),
+      ),
+      inlinePolicies: {
+        Route53Delegation: new iam.PolicyDocument({
+          statements: [
+            // Allow NS record creation in the specific hosted zone
+            new iam.PolicyStatement({
+              effect: iam.Effect.ALLOW,
+              actions: ['route53:ChangeResourceRecordSets', 'route53:GetChange'],
+              resources: [`arn:aws:route53:::hostedzone/${hostedZone.hostedZoneId}`],
+              conditions: {
+                'ForAllValues:StringEquals': {
+                  'route53:ChangeResourceRecordSetsRecordTypes': ['NS'],
+                },
+              },
+            }),
+            // Allow listing hosted zones by name (required by CrossAccountZoneDelegationRecord)
+            new iam.PolicyStatement({
+              effect: iam.Effect.ALLOW,
+              actions: ['route53:ListHostedZonesByName'],
+              resources: ['*'], // ListHostedZonesByName doesn't support resource-level permissions
+            }),
+          ],
+        }),
+      },
+    });
+
+    // Export role ARN to SSM for workload accounts
+    new ssm.StringParameter(this, `DelegationRoleArn${index}`, {
+      parameterName: `/codeiqlabs/route53/${domainName}/delegation-role-arn`,
+      stringValue: delegationRole.roleArn,
+      description: `Delegation role ARN for ${domainName} subdomain delegation`,
+      tier: ssm.ParameterTier.STANDARD,
+    });
+
+    // CloudFormation output
+    new CfnOutput(this, `${this.sanitizeDomainName(domainName)}DelegationRoleArn`, {
+      value: delegationRole.roleArn,
+      description: `Delegation role ARN for ${domainName}`,
+      exportName: this.naming.exportName(
+        `${this.sanitizeDomainName(domainName)}-delegation-role-arn`,
+      ),
     });
   }
 

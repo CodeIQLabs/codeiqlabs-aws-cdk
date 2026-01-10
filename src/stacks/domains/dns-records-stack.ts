@@ -1,31 +1,46 @@
 import { Construct } from 'constructs';
-import { CfnOutput, Fn } from 'aws-cdk-lib';
+import { Fn } from 'aws-cdk-lib';
 import { HostedZone, IHostedZone, ARecord, RecordTarget } from 'aws-cdk-lib/aws-route53';
 import { BaseStack, type BaseStackProps } from '../base/base-stack';
-import type { UnifiedAppConfig } from '@codeiqlabs/aws-utils';
+import type { UnifiedAppConfig, SaasEdgeApp } from '@codeiqlabs/aws-utils';
 
 /**
  * DNS Records Stack
  *
  * Creates ALIAS records in Route53 hosted zones pointing to CloudFront distributions.
+ * Subdomains are derived from saasEdge (convention-over-configuration).
  *
  * **Architecture:**
  * - Deployed in Management Account
  * - Creates ALIAS records: {subdomain}.{brand} → CloudFront distribution
  * - Handles both apex and subdomain records
- * - Also creates ALIAS records for aliases (e.g., www.savvue.com)
  *
- * **Note:** Origin CNAME records (origin-{env}-{service}.{brand} → ALB) are now
- * handled by OriginCnameRecordsStack, which is deployed before this stack.
+ * **Derived Subdomains:**
+ * - Marketing distributions (prod): {domain} (apex), www.{domain}
+ * - Marketing distributions (nprd): www-{env}.{domain} (avoids NS delegation conflict)
+ * - Webapp distributions: app.{domain}, {env}-app.{domain}
+ * - API distributions: api.{domain}, {env}-api.{domain}
+ *
+ * **NS Delegation Architecture:**
+ * - {env}.{domain} (e.g., nprd.savvue.com) is reserved for NS delegation to workload zones
+ * - Marketing sites use www-{env}.{domain} to avoid conflict with NS records
  *
  * **Dependencies:**
  * - RootDomainStack (for hosted zones)
- * - CloudFrontDistributionStack (for CloudFront distributions)
+ * - CloudFrontVpcOriginStack (for CloudFront distributions)
  */
 
 export interface DnsRecordsStackProps extends BaseStackProps {
   /** Unified application configuration from manifest */
   config: UnifiedAppConfig;
+  /** Target environments for DNS records (e.g., ['nprd', 'prod']) */
+  targetEnvironments: string[];
+}
+
+interface DerivedSubdomain {
+  fqdn: string;
+  domain: string;
+  aliases?: string[];
 }
 
 /**
@@ -38,99 +53,132 @@ export class DnsRecordsStack extends BaseStack {
   constructor(scope: Construct, id: string, props: DnsRecordsStackProps) {
     super(scope, id, 'DnsRecords', props);
 
+    // Derive domains from saasEdge
+    const saasEdge = (props.config as any).saasEdge as SaasEdgeApp[] | undefined;
     const domainConfig = (props.config as any).domains;
 
-    if (!domainConfig?.enabled || !domainConfig.registeredDomains?.length) {
-      throw new Error('Domain configuration is required for DNS records stack');
+    if (!saasEdge || saasEdge.length === 0) {
+      throw new Error('saasEdge configuration is required for DnsRecordsStack');
     }
 
-    // Process each registered domain
-    domainConfig.registeredDomains.forEach((domain: any, domainIndex: number) => {
-      this.processDomain(domain, domainIndex);
-    });
+    // Build unique domain list for hosted zone imports
+    const domainMap = new Map<string, { name: string; hostedZoneId?: string }>();
+    for (const app of saasEdge) {
+      if (!domainMap.has(app.domain)) {
+        domainMap.set(app.domain, { name: app.domain });
+      }
+    }
+
+    // Merge with explicit registeredDomains (can provide hostedZoneId)
+    if (domainConfig?.registeredDomains) {
+      for (const domain of domainConfig.registeredDomains) {
+        domainMap.set(domain.name, domain);
+      }
+    }
+
+    // Import hosted zones
+    const hostedZones = new Map<string, IHostedZone>();
+    for (const domain of domainMap.values()) {
+      hostedZones.set(domain.name, this.importHostedZone(domain));
+    }
+
+    // Derive subdomains from saasEdge
+    const subdomains = this.deriveSubdomains(saasEdge, props.targetEnvironments);
+
+    // Create DNS records for each subdomain
+    for (const subdomain of subdomains) {
+      const hostedZone = hostedZones.get(subdomain.domain);
+      if (hostedZone) {
+        this.createCloudFrontRecord(subdomain, hostedZone);
+      }
+    }
   }
 
   /**
-   * Process a registered domain and its subdomains
+   * Derive subdomains from saasEdge configuration
    */
-  private processDomain(domain: any, domainIndex: number): void {
-    if (!domain.name) {
-      throw new Error(`Domain at index ${domainIndex} is missing required "name" field`);
+  private deriveSubdomains(
+    saasEdge: SaasEdgeApp[],
+    targetEnvironments: string[],
+  ): DerivedSubdomain[] {
+    const subdomains: DerivedSubdomain[] = [];
+
+    for (const app of saasEdge) {
+      for (const distribution of app.distributions) {
+        if (distribution.type === 'marketing') {
+          // Marketing distributions for each environment
+          // IMPORTANT: Non-prod uses www-{env}.{domain} to avoid NS delegation conflict
+          // The {env}.{domain} subdomain is reserved for NS delegation to workload zones
+          for (const env of targetEnvironments) {
+            const fqdn = env === 'prod' ? app.domain : `www-${env}.${app.domain}`;
+            const aliases = env === 'prod' ? [`www.${app.domain}`] : undefined;
+
+            subdomains.push({
+              fqdn,
+              domain: app.domain,
+              aliases,
+            });
+          }
+        } else {
+          // Webapp/API subdomains for each environment
+          for (const env of targetEnvironments) {
+            const prefix = env === 'prod' ? '' : `${env}-`;
+            const subdomain = distribution.type === 'webapp' ? 'app' : 'api';
+
+            subdomains.push({
+              fqdn: `${prefix}${subdomain}.${app.domain}`,
+              domain: app.domain,
+            });
+          }
+        }
+      }
     }
 
-    // Import the hosted zone
-    const hostedZone = this.importHostedZone(domain, domainIndex);
-
-    // Get all subdomains that need DNS records
-    const subdomains = domain.subdomains || [];
-
-    subdomains.forEach((subdomain: any, subdomainIndex: number) => {
-      if (!subdomain.enabled) {
-        return; // Skip disabled subdomains
-      }
-
-      this.createDnsRecord(subdomain, hostedZone, domainIndex, subdomainIndex);
-    });
+    return subdomains;
   }
 
   /**
    * Import hosted zone
    */
-  private importHostedZone(domain: any, domainIndex: number): IHostedZone {
+  private importHostedZone(domain: any): IHostedZone {
     const hostedZoneId =
       domain.hostedZoneId ||
       Fn.importValue(
         this.naming.exportName(`${this.sanitizeDomainName(domain.name)}-hosted-zone-id`),
       );
 
-    return HostedZone.fromHostedZoneAttributes(this, `HostedZone${domainIndex}`, {
+    // Use stable logical ID based on domain name
+    const logicalId = `HostedZone${this.sanitizeDomainName(domain.name)}`;
+
+    return HostedZone.fromHostedZoneAttributes(this, logicalId, {
       hostedZoneId,
       zoneName: domain.name,
     });
   }
 
   /**
-   * Create DNS record for a subdomain
-   */
-  private createDnsRecord(
-    subdomain: any,
-    hostedZone: IHostedZone,
-    domainIndex: number,
-    subdomainIndex: number,
-  ): void {
-    // Only create records for CloudFront-enabled subdomains
-    if (subdomain.cloudfront?.enabled) {
-      this.createCloudFrontRecord(subdomain, hostedZone, domainIndex, subdomainIndex);
-    }
-    // Note: Origin CNAME records are now handled by OriginCnameRecordsStack
-  }
-
-  /**
    * Create ALIAS record pointing to CloudFront distribution
    */
-  private createCloudFrontRecord(
-    subdomain: any,
-    hostedZone: IHostedZone,
-    domainIndex: number,
-    subdomainIndex: number,
-  ): void {
-    const subdomainName = subdomain.name;
+  private createCloudFrontRecord(subdomain: DerivedSubdomain, hostedZone: IHostedZone): void {
+    const subdomainName = subdomain.fqdn;
 
-    // Import CloudFront distribution domain name from CloudFrontDistributionStack
+    // Import CloudFront distribution domain name from CloudFrontVpcOriginStack
     const distributionDomain = Fn.importValue(
       this.naming.exportName(`${this.sanitizeDomainName(subdomainName)}-distribution-domain`),
     );
 
+    // Use stable logical ID based on FQDN
+    // Examples: RecordCodeiqlabsCom, RecordNprdSavvueCom, RecordAppTimislyCom
+    const logicalId = `Record${this.sanitizeDomainName(subdomainName)}`;
+
     // Create ALIAS record pointing to CloudFront
-    // Note: We use a custom ALIAS target instead of CloudFrontTarget because we're importing
-    // the distribution domain from another stack and don't have the IDistribution object
-    const record = new ARecord(this, `CloudFrontRecord${domainIndex}${subdomainIndex}`, {
+    const record = new ARecord(this, logicalId, {
       zone: hostedZone,
       recordName: subdomainName,
       target: RecordTarget.fromAlias({
         bind: () => ({
           dnsName: distributionDomain,
-          hostedZoneId: 'Z2FDTNDATAQYW2', // CloudFront hosted zone ID (constant for all CloudFront distributions)
+          hostedZoneId: 'Z2FDTNDATAQYW2', // CloudFront hosted zone ID (constant)
         }),
       }),
       comment: `ALIAS record for ${subdomainName} pointing to CloudFront distribution`,
@@ -138,12 +186,29 @@ export class DnsRecordsStack extends BaseStack {
 
     this.records.set(subdomainName, record);
 
-    // Export record information
-    new CfnOutput(this, `${this.sanitizeDomainName(subdomainName)}RecordCreated`, {
-      value: `${subdomainName} -> CloudFront`,
-      description: `DNS record for ${subdomainName}`,
-      exportName: this.naming.exportName(`${this.sanitizeDomainName(subdomainName)}-dns-record`),
-    });
+    // Create records for aliases too (e.g., www.savvue.com)
+    for (const alias of subdomain.aliases || []) {
+      const aliasDistributionDomain = Fn.importValue(
+        this.naming.exportName(`${this.sanitizeDomainName(alias)}-distribution-domain`),
+      );
+
+      // Use stable logical ID based on alias FQDN
+      const aliasLogicalId = `Record${this.sanitizeDomainName(alias)}`;
+
+      const aliasRecord = new ARecord(this, aliasLogicalId, {
+        zone: hostedZone,
+        recordName: alias,
+        target: RecordTarget.fromAlias({
+          bind: () => ({
+            dnsName: aliasDistributionDomain,
+            hostedZoneId: 'Z2FDTNDATAQYW2',
+          }),
+        }),
+        comment: `ALIAS record for ${alias} pointing to CloudFront distribution`,
+      });
+
+      this.records.set(alias, aliasRecord);
+    }
   }
 
   /**
