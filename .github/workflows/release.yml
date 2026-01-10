@@ -22,6 +22,7 @@ jobs:
           node-version: 20
           cache: "npm"
           registry-url: "https://npm.pkg.github.com"
+          scope: "@codeiqlabs"
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
