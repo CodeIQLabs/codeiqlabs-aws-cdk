@@ -1,6 +1,6 @@
 {
   "name": "@codeiqlabs/aws-cdk",
-  "version": "1.4.0",
+  "version": "1.5.0",
   "description": "Component-based AWS CDK framework for manifest-driven infrastructure orchestration",
   "type": "module",
   "main": "./dist/index.cjs",
