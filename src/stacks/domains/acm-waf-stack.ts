@@ -170,9 +170,49 @@ export class AcmAndWafStack extends BaseStack {
       name: 'nprd-allowed-ips',
     });
 
+    // Custom response body key for WAF block responses
+    // Using 499 status code to avoid CloudFront's customErrorResponses catching 403
+    // (CloudFront converts 403/404 to 200 for SPA routing, which would bypass WAF blocks)
+    const customResponseBodyKey = 'nprd-access-denied';
+
     const nprdWebAcl = new wafv2.CfnWebACL(this, 'NprdWebAcl', {
       scope: 'CLOUDFRONT',
-      defaultAction: { block: {} },
+      defaultAction: {
+        block: {
+          customResponse: {
+            responseCode: 499,
+            customResponseBodyKey,
+          },
+        },
+      },
+      customResponseBodies: {
+        [customResponseBodyKey]: {
+          contentType: 'TEXT_HTML',
+          content: `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Access Denied</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; display: flex; justify-content: center; align-items: center; min-height: 100vh; margin: 0; background: #f5f5f5; }
+    .container { text-align: center; padding: 2rem; background: white; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); max-width: 400px; }
+    h1 { color: #e74c3c; margin-bottom: 1rem; }
+    p { color: #666; margin-bottom: 0.5rem; }
+    .code { font-family: monospace; background: #f0f0f0; padding: 0.25rem 0.5rem; border-radius: 4px; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Access Denied</h1>
+    <p>This environment is restricted to authorized IP addresses.</p>
+    <p>If you believe this is an error, please contact the administrator.</p>
+    <p class="code">Error: NPRD-WAF-BLOCK</p>
+  </div>
+</body>
+</html>`,
+        },
+      },
       visibilityConfig: {
         cloudWatchMetricsEnabled: true,
         metricName: 'nprd-web-acl',

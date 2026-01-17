@@ -62,7 +62,7 @@ interface DerivedSubdomain {
   brand: string;
   domain: string;
   environment: string; // 'prod' for production, 'nprd' for non-prod, etc.
-  originType: 'alb' | 's3';
+  originType: 'alb' | 's3' | 'apiGateway';
   aliases?: string[];
 }
 
@@ -99,10 +99,11 @@ export class CloudFrontVpcOriginStack extends BaseStack {
     // Example: alb.nprd.savvue.com → NS delegation → workload zone → ALB
 
     // Create Origin Access Control for S3 origins
+    // S3 buckets are in workload accounts; CloudFront accesses them via cross-account OAC
     this.originAccessControl = new cloudfront.CfnOriginAccessControl(this, 'S3Oac', {
       originAccessControlConfig: {
         name: `${stackConfig.project}-${stackConfig.environment}-s3-oac`,
-        description: 'OAC for S3 bucket origins',
+        description: 'OAC for S3 bucket origins (cross-account access to workload buckets)',
         originAccessControlOriginType: 's3',
         signingBehavior: 'always',
         signingProtocol: 'sigv4',
@@ -111,6 +112,10 @@ export class CloudFrontVpcOriginStack extends BaseStack {
 
     // Derive subdomains from saasEdge
     const subdomains = this.deriveSubdomains(saasEdge, props.targetEnvironments);
+
+    // S3 buckets for webapp and marketing sites are created in workload accounts
+    // by StaticWebAppStack in saas-aws. CloudFront references them via cross-account OAC.
+    // Bucket policies in workload accounts allow CloudFront OAC from management account.
 
     // Create distributions for each subdomain
     for (const subdomain of subdomains) {
@@ -156,13 +161,24 @@ export class CloudFrontVpcOriginStack extends BaseStack {
             const prefix = env === 'prod' ? '' : `${env}-`;
             const subdomain = distribution.type === 'webapp' ? 'app' : 'api';
 
+            // Determine origin type:
+            // - webapp can use ALB (ECS Fargate) or S3 (static SPA)
+            // - api can use ALB or API Gateway based on originType config
+            // - Default to 'alb' for backward compatibility
+            let originType: 'alb' | 'apiGateway' | 's3' = 'alb';
+            if (distribution.type === 'webapp' && distribution.originType === 's3') {
+              originType = 's3';
+            } else if (distribution.type === 'api' && distribution.originType === 'apiGateway') {
+              originType = 'apiGateway';
+            }
+
             subdomains.push({
               fqdn: `${prefix}${subdomain}.${app.domain}`,
               type: distribution.type,
               brand,
               domain: app.domain,
               environment: env,
-              originType: 'alb',
+              originType,
             });
           }
         }
@@ -304,10 +320,51 @@ export class CloudFrontVpcOriginStack extends BaseStack {
           originCustomHeaders: customHeaders,
         },
       ];
+    } else if (subdomain.originType === 'apiGateway') {
+      // API Gateway Origin Pattern:
+      // Origin domain: api-gw.{env}.{brand}.com
+      // Example: api-gw.nprd.savvue.com (for nprd environment, savvue brand)
+      // This resolves via NS delegation:
+      //   1. DNS query for api-gw.nprd.savvue.com
+      //   2. savvue.com zone has NS record: nprd.savvue.com → workload zone NS
+      //   3. nprd.savvue.com zone (in workload account) has A record: api-gw → API Gateway
+      const originDomain = `api-gw.${subdomain.environment}.${subdomain.domain}`;
+
+      // Custom headers for API Gateway routing (optional, for logging/tracing)
+      const customHeaders = [
+        {
+          headerName: 'X-Forwarded-Brand',
+          headerValue: subdomain.brand,
+        },
+        {
+          headerName: 'X-Forwarded-Service',
+          headerValue: subdomain.type,
+        },
+      ];
+
+      return [
+        {
+          id: originId,
+          domainName: originDomain, // Delegated subdomain origin
+          customOriginConfig: {
+            httpPort: 80,
+            httpsPort: 443,
+            originProtocolPolicy: 'https-only', // Force HTTPS to API Gateway
+            originSslProtocols: ['TLSv1.2'],
+            originReadTimeout: 30,
+            originKeepaliveTimeout: 5,
+          },
+          originCustomHeaders: customHeaders,
+        },
+      ];
     } else {
-      // S3 origin for marketing sites
+      // S3 origin for marketing sites and static webapps
       const stackConfig = this.getStackConfig();
-      const bucketName = this.deriveS3BucketName(subdomain.brand, subdomain.environment);
+      const bucketName = this.deriveS3BucketName(
+        subdomain.brand,
+        subdomain.environment,
+        subdomain.type,
+      );
       const bucketDomainName = `${bucketName}.s3.${stackConfig.region}.amazonaws.com`;
 
       return [
@@ -354,13 +411,24 @@ export class CloudFrontVpcOriginStack extends BaseStack {
   }
 
   /**
-   * Derive S3 bucket name from brand and environment
-   * Convention: saas-{env}-static-{brand}[-{hash}]
+   * Derive S3 bucket name for CloudFront origins
    *
-   * The hash is generated using the workload account's accountId and region
-   * to match the hash generated when the S3 bucket was created in StaticWebAppStack.
+   * Both marketing and webapp S3 buckets are created in workload accounts by
+   * StaticWebAppStack in saas-aws. CloudFront accesses them via cross-account OAC.
+   *
+   * For marketing sites:
+   *   Convention: saas-{env}-static-{brand}[-{hash}]
+   *   The hash is generated using the workload account's accountId and region.
+   *
+   * For webapp sites (static SPAs):
+   *   Convention: saas-{env}-webapp-{brand}[-{hash}]
+   *   The hash is generated using the workload account's accountId and region.
    */
-  private deriveS3BucketName(brand: string, environment: string): string {
+  private deriveS3BucketName(
+    brand: string,
+    environment: string,
+    distributionType: 'marketing' | 'webapp' | 'api',
+  ): string {
     // Get workload account configuration for the target environment
     const envConfig = this.config.environments?.[environment];
     if (!envConfig) {
@@ -370,6 +438,7 @@ export class CloudFrontVpcOriginStack extends BaseStack {
       );
     }
 
+    // Both webapp and marketing S3 buckets are in workload accounts
     // Create a ResourceNaming instance with the workload account's configuration
     // This ensures the hash matches what was generated in StaticWebAppStack
     const workloadNaming = new ResourceNaming({
@@ -380,9 +449,12 @@ export class CloudFrontVpcOriginStack extends BaseStack {
       accountId: envConfig.accountId,
     });
 
+    // Determine bucket prefix based on distribution type
+    // webapp: webapp-{brand}, marketing: static-{brand}
+    const bucketPrefix = distributionType === 'webapp' ? 'webapp' : 'static';
+
     // Generate bucket name with the same hash as StaticWebAppStack
-    // Purpose: 'static-{brand}' matches what StaticWebAppStack uses
-    return workloadNaming.s3BucketName(`static-${brand}`);
+    return workloadNaming.s3BucketName(`${bucketPrefix}-${brand}`);
   }
 
   /**

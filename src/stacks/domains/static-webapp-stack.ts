@@ -36,13 +36,44 @@ import type { Construct } from 'constructs';
 import { BaseStack, BaseStackProps } from '../base';
 
 /**
+ * Bucket type for static hosting
+ * - marketing: Marketing site (Next.js static export) - bucket prefix: static-{brand}
+ * - webapp: Web application (React Native Web / Expo) - bucket prefix: webapp-{brand}
+ */
+export type StaticBucketType = 'marketing' | 'webapp';
+
+/**
+ * Brand bucket configuration
+ */
+export interface BrandBucketConfig {
+  /**
+   * Brand name (e.g., "savvue", "equitrio")
+   */
+  brand: string;
+
+  /**
+   * Bucket type - determines naming prefix and SSM parameter path
+   * - marketing: static-{brand}, /codeiqlabs/saas/{env}/static/{brand}/bucket-name
+   * - webapp: webapp-{brand}, /codeiqlabs/saas/{env}/webapp/{brand}/bucket-name
+   */
+  type: StaticBucketType;
+}
+
+/**
  * Static Site configuration
  */
 export interface StaticSiteConfig {
   /**
-   * List of brands to create S3 buckets for
+   * List of brands to create S3 buckets for (legacy - creates marketing buckets)
+   * @deprecated Use brandBuckets instead for explicit bucket type control
    */
-  brands: string[];
+  brands?: string[];
+
+  /**
+   * List of brand bucket configurations with explicit types
+   * Allows creating both marketing and webapp buckets for the same brand
+   */
+  brandBuckets?: BrandBucketConfig[];
 
   /**
    * Management account ID for CloudFront OAC access
@@ -102,11 +133,29 @@ export class StaticWebAppStack extends BaseStack {
       config.managementAccountId ||
       ssm.StringParameter.valueFromLookup(this, '/codeiqlabs/org/management-account-id');
 
-    // Create S3 bucket for each brand
-    for (const brand of config.brands) {
+    // Build unified bucket list from both legacy brands and new brandBuckets
+    // Legacy brands array creates marketing buckets for backward compatibility
+    const bucketConfigs: BrandBucketConfig[] = [
+      ...(config.brands?.map((brand) => ({ brand, type: 'marketing' as const })) ?? []),
+      ...(config.brandBuckets ?? []),
+    ];
+
+    // Create S3 bucket for each brand/type combination
+    for (const bucketConfig of bucketConfigs) {
+      const { brand, type } = bucketConfig;
+
+      // Determine bucket prefix and SSM path based on type
+      // marketing: static-{brand}, /codeiqlabs/saas/{env}/static/{brand}/bucket-name
+      // webapp: webapp-{brand}, /codeiqlabs/saas/{env}/webapp/{brand}/bucket-name
+      const bucketPrefix = type === 'marketing' ? 'static' : 'webapp';
+      const ssmPathPrefix = type === 'marketing' ? 'static' : 'webapp';
+
+      // Use unique construct ID to allow both marketing and webapp for same brand
+      const constructId = `${brand}-${type}`;
+
       // Create S3 bucket for static assets
-      const bucket = new s3.Bucket(this, `${brand}Bucket`, {
-        bucketName: this.naming.s3BucketName(`static-${brand}`),
+      const bucket = new s3.Bucket(this, `${constructId}Bucket`, {
+        bucketName: this.naming.s3BucketName(`${bucketPrefix}-${brand}`),
         versioned: enableVersioning,
         encryption: s3.BucketEncryption.S3_MANAGED,
         blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
@@ -115,13 +164,10 @@ export class StaticWebAppStack extends BaseStack {
         websiteIndexDocument: 'index.html',
         websiteErrorDocument: 'index.html', // SPA fallback
       });
-      this.buckets.set(brand, bucket);
+      // Store with type-prefixed key to allow both types for same brand
+      this.buckets.set(`${type}-${brand}`, bucket);
 
       // Add bucket policy for CloudFront OAC access from Management account
-      // The CloudFront distribution in Management account will use OAC to access this bucket
-      // Per AWS docs, OAC requires AWS:SourceArn condition with the CloudFront distribution ARN
-      // We use a wildcard pattern since the distribution ID isn't known at bucket creation time
-      // See: https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/private-content-restricting-access-to-s3.html
       bucket.addToResourcePolicy(
         new iam.PolicyStatement({
           sid: 'AllowCloudFrontOAC',
@@ -138,45 +184,49 @@ export class StaticWebAppStack extends BaseStack {
       );
 
       // Create SSM parameter for bucket info (for cross-account CloudFront configuration)
-      // Pattern: /{company}/{project}/{env}/static/{brand}/bucket-name (derived from manifest)
-      const ssmParameterPath = this.naming.ssmParameterName(`static/${brand}`, 'bucket-name');
-      const bucketParameter = new ssm.StringParameter(this, `${brand}BucketParameter`, {
+      const ssmParameterPath = this.naming.ssmParameterName(
+        `${ssmPathPrefix}/${brand}`,
+        'bucket-name',
+      );
+      const bucketParameter = new ssm.StringParameter(this, `${constructId}BucketParameter`, {
         parameterName: ssmParameterPath,
         stringValue: bucket.bucketName,
-        description: `S3 bucket name for ${brand} static site`,
+        description: `S3 bucket name for ${brand} ${type} site`,
         tier: ssm.ParameterTier.STANDARD,
       });
-      this.bucketParameters.set(brand, bucketParameter);
+      this.bucketParameters.set(`${type}-${brand}`, bucketParameter);
 
       // Also store bucket regional domain name for CloudFront origin
-      // Pattern: /{company}/{project}/{env}/static/{brand}/bucket-domain (derived from manifest)
-      const domainParameterPath = this.naming.ssmParameterName(`static/${brand}`, 'bucket-domain');
-      new ssm.StringParameter(this, `${brand}BucketDomainParameter`, {
+      const domainParameterPath = this.naming.ssmParameterName(
+        `${ssmPathPrefix}/${brand}`,
+        'bucket-domain',
+      );
+      new ssm.StringParameter(this, `${constructId}BucketDomainParameter`, {
         parameterName: domainParameterPath,
         stringValue: bucket.bucketRegionalDomainName,
-        description: `S3 bucket regional domain for ${brand} static site`,
+        description: `S3 bucket regional domain for ${brand} ${type} site`,
         tier: ssm.ParameterTier.STANDARD,
       });
 
       // Export bucket name
-      new cdk.CfnOutput(this, `${brand}BucketName`, {
+      new cdk.CfnOutput(this, `${constructId}BucketName`, {
         value: bucket.bucketName,
-        exportName: this.naming.exportName(`static-${brand}-bucket`),
-        description: `S3 bucket name for ${brand} static site`,
+        exportName: this.naming.exportName(`${bucketPrefix}-${brand}-bucket`),
+        description: `S3 bucket name for ${brand} ${type} site`,
       });
 
       // Export bucket ARN
-      new cdk.CfnOutput(this, `${brand}BucketArn`, {
+      new cdk.CfnOutput(this, `${constructId}BucketArn`, {
         value: bucket.bucketArn,
-        exportName: this.naming.exportName(`static-${brand}-bucket-arn`),
-        description: `S3 bucket ARN for ${brand} static site`,
+        exportName: this.naming.exportName(`${bucketPrefix}-${brand}-bucket-arn`),
+        description: `S3 bucket ARN for ${brand} ${type} site`,
       });
 
       // Export bucket regional domain name
-      new cdk.CfnOutput(this, `${brand}BucketDomain`, {
+      new cdk.CfnOutput(this, `${constructId}BucketDomain`, {
         value: bucket.bucketRegionalDomainName,
-        exportName: this.naming.exportName(`static-${brand}-bucket-domain`),
-        description: `S3 bucket regional domain for ${brand} static site`,
+        exportName: this.naming.exportName(`${bucketPrefix}-${brand}-bucket-domain`),
+        description: `S3 bucket regional domain for ${brand} ${type} site`,
       });
     }
   }

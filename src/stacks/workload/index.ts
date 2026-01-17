@@ -4,19 +4,19 @@
  * This module provides reusable stack classes for workload infrastructure
  * that deploys to multi-environment accounts (nprd, prod, etc.).
  *
+ * Architecture: Lambda + API Gateway + DynamoDB (serverless-first)
+ *
  * Stacks in this module:
- * - VpcStack: VPC with public/private/isolated subnets
- * - EcsClusterStack: ECS cluster with container insights
- * - EcsFargateServiceStack: Fargate service with ALB and SSM parameter
- * - EcrRepositoryStack: ECR repositories for container images
+ * - EcrRepositoryStack: ECR repositories for Lambda container images
  * - SaasSecretsStack: Secrets Manager secrets for SaaS applications
- * - AuroraServerlessStack: Aurora Serverless v2 PostgreSQL database
- * - OriginHostedZoneStack: Route53 origin zones with Alias records to ALBs
+ * - DynamoDBStack: DynamoDB tables for per-brand data storage
+ * - LambdaFunctionStack: Lambda functions from ECR images with DynamoDB access
+ * - ApiGatewayStack: HTTP API Gateway with routes to Lambda functions
+ * - EventBridgeStack: EventBridge event bus with routing rules and DLQ
  */
-export * from './vpc-stack';
-export * from './ecs-cluster-stack';
-export * from './ecs-fargate-service-stack';
 export * from './ecr-repository-stack';
 export * from './saas-secrets-stack';
-export * from './aurora-serverless-stack';
-export * from './origin-hosted-zone-stack';
+export * from './dynamodb-stack';
+export * from './lambda-function-stack';
+export * from './api-gateway-stack';
+export * from './eventbridge-stack';
