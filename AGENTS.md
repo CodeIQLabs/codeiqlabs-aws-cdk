@@ -209,4 +209,37 @@ cd ../codeiqlabs-customization-aws && rm -rf node_modules pnpm-lock.yaml && pnpm
 
 - **Why**: Single ALB serves multiple services (webapp, api) per brand
 - **How**: CloudFront adds X-Forwarded-Service header, ALB routes based on it
-- **Trade-off**: Header dependenc
+- **Trade-off**: Header dependency, but enables multi-service routing on single ALB
+
+## Anti-Patterns
+
+- **Don't hardcode account IDs or regions** - Use manifest.yaml and environment configuration
+- **Don't create circular stack dependencies** - Use SSM parameters or direct references
+- **Don't bypass BaseStack** - All stacks must extend BaseStack for consistent naming/tagging
+- **Don't use `enabled: true` flags** - Presence in manifest implies enabled
+  (convention-over-configuration)
+- **Don't manually version packages** - Use changesets; CI handles versioning automatically
+- **Don't skip rebuilding aws-utils** - Always rebuild aws-utils before aws-cdk
+- **Don't use published versions in local dev** - Use `file:../` references for local development
+- **Don't create stacks in wrong accounts** - Management stacks → mgmt, Workload stacks → nprd/prod
+- **Don't mix CloudFront and non-CloudFront certs** - CloudFront certs must be in us-east-1
+
+## Key Files
+
+| File/Directory                                            | Purpose                                                         |
+| --------------------------------------------------------- | --------------------------------------------------------------- |
+| `src/application/cdk-application.ts`                      | CDK app factory with manifest loading                           |
+| `src/application/orchestration/component-orchestrator.ts` | Manifest-driven stack creation logic                            |
+| `src/stacks/base-stack.ts`                                | Base class for all stacks (naming, tagging)                     |
+| `src/stacks/organizations/`                               | AWS Organizations and account management stacks                 |
+| `src/stacks/identity-center/`                             | Identity Center (SSO) stacks                                    |
+| `src/stacks/domains/`                                     | Route53, ACM, CloudFront, DNS stacks                            |
+| `src/stacks/customization/`                               | VPC, ALB, VPC Origins, GitHub OIDC stacks                       |
+| `src/stacks/workload/`                                    | ECR, Secrets, DynamoDB, Lambda, API Gateway, EventBridge stacks |
+| `src/constructs/`                                         | Reusable L2/L3 constructs                                       |
+| `bin/app.ts`                                              | CDK entry point (calls createApp())                             |
+| `package.json`                                            | Package metadata, exports, dependencies                         |
+
+## Source of Truth
+
+[codeiqlabs-docs](../codeiqlabs-docs/AGENTS.md)

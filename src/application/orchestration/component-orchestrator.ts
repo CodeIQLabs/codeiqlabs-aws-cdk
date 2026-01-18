@@ -727,9 +727,22 @@ export class ComponentOrchestrator implements BaseOrchestrator {
 
                 // Derive CORS origins from brands with domains (webapps that call the API)
                 // These are served via S3 + CloudFront static hosting
-                const corsOrigins = saasWorkload
+                // For non-prod environments, include both prefixed and non-prefixed origins
+                // e.g., nprd: https://nprd-app.savvue.com AND https://app.savvue.com
+                // e.g., prod: https://app.savvue.com only
+                const domainsWithWebapps = saasWorkload
                   .filter((app: any) => app.domain)
-                  .map((app: any) => `https://app.${app.domain}`);
+                  .map((app: any) => app.domain as string);
+
+                const corsOrigins: string[] = [];
+                for (const domain of domainsWithWebapps) {
+                  // Always include production-style origin (https://app.{domain})
+                  corsOrigins.push(`https://app.${domain}`);
+                  // For non-prod environments, also include prefixed origin (https://{env}-app.{domain})
+                  if (envName !== 'prod') {
+                    corsOrigins.push(`https://${envName}-app.${domain}`);
+                  }
+                }
 
                 // Get brand domains that have lambdaApi: true for API mappings
                 const apiMappingDomains = saasWorkload

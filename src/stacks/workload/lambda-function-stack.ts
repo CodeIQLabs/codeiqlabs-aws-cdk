@@ -7,7 +7,8 @@
  * Architecture:
  * - Lambda functions deployed without VPC (faster cold starts, direct AWS service access)
  * - IAM roles grant access to DynamoDB tables
- * - Environment variables for DynamoDB table names and EventBridge
+ * - Each function gets DYNAMODB_TABLE_NAME for its own table (derived from function name)
+ * - Function name 'api-savvue' → table 'savvue' → DYNAMODB_TABLE_NAME=saas-nprd-savvue
  * - SSM parameters for API Gateway integration
  *
  * @example
@@ -113,8 +114,10 @@ export interface LambdaFunctionStackProps extends BaseStackProps {
 
   /**
    * DynamoDB tables for data access.
-   * Map of table name to Table construct.
-   * Lambda functions will be granted read/write access to all tables.
+   * Map of table name (e.g., 'core', 'savvue') to Table construct.
+   * Each Lambda function gets DYNAMODB_TABLE_NAME for its own table,
+   * derived from function name (e.g., 'api-savvue' → 'savvue' table).
+   * IAM role grants read/write access to all tables.
    */
   dynamodbTables?: Map<string, dynamodb.Table>;
 }
@@ -175,15 +178,6 @@ export class LambdaFunctionStack extends BaseStack {
       );
     }
 
-    // Build DynamoDB table name environment variables
-    const dynamodbEnvVars: Record<string, string> = {};
-    if (dynamodbTables) {
-      for (const [tableName, table] of dynamodbTables) {
-        // DYNAMODB_TABLE_CORE, DYNAMODB_TABLE_SAVVUE, etc.
-        dynamodbEnvVars[`DYNAMODB_TABLE_${tableName.toUpperCase()}`] = table.tableName;
-      }
-    }
-
     // Create Lambda functions
     for (const fnConfig of config.functions) {
       const functionName = this.naming.resourceName(fnConfig.name);
@@ -196,13 +190,28 @@ export class LambdaFunctionStack extends BaseStack {
         this.naming.resourceName(ecrRepoName),
       );
 
+      // Grant ECR pull permissions to the execution role
+      // This is required for Lambda to pull the container image from ECR
+      ecrRepository.grantPull(executionRole);
+
+      // Derive table name from function name (e.g., 'api-savvue' → 'savvue', 'api-core' → 'core')
+      // Each Lambda function connects to its own single table
+      const derivedTableName = fnConfig.name.replace(/^api-/, '');
+
       // Build environment variables
       // Note: AWS_REGION is automatically set by Lambda runtime, don't set it manually
       const environment: Record<string, string> = {
         NODE_ENV: 'production',
-        ...dynamodbEnvVars,
         ...fnConfig.environment,
       };
+
+      // Set DYNAMODB_TABLE_NAME for this function's specific table
+      if (dynamodbTables) {
+        const table = dynamodbTables.get(derivedTableName);
+        if (table) {
+          environment.DYNAMODB_TABLE_NAME = table.tableName;
+        }
+      }
 
       // Add EventBridge bus name if configured
       if (config.eventBridgeBusName) {

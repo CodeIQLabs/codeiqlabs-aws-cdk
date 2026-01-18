@@ -108,6 +108,7 @@ export class GitHubOidcStack extends BaseStack {
     // Add permissions
     this.addEcrPermissions(ecrRepositoryPrefix, accountId, region);
     this.addEcsPermissions(ecsClusterPrefix, accountId, region);
+    this.addLambdaPermissions(ecrRepositoryPrefix, accountId, region);
     this.addS3Permissions(s3BucketPrefix);
     this.addSsmPermissions();
     this.addCloudFrontPermissions(accountId);
@@ -209,6 +210,21 @@ export class GitHubOidcStack extends BaseStack {
           'arn:aws:ecs:' + region + ':' + accountId + ':task/' + prefix + '-*/*',
           'arn:aws:ecs:' + region + ':' + accountId + ':task-definition/*:*',
         ],
+      }),
+    );
+  }
+
+  private addLambdaPermissions(prefix: string, accountId: string, region: string): void {
+    this.role.addToPolicy(
+      new iam.PolicyStatement({
+        sid: 'LambdaUpdateFunction',
+        effect: iam.Effect.ALLOW,
+        actions: [
+          'lambda:GetFunction',
+          'lambda:UpdateFunctionCode',
+          'lambda:GetFunctionConfiguration',
+        ],
+        resources: ['arn:aws:lambda:' + region + ':' + accountId + ':function:' + prefix + '-*'],
       }),
     );
   }
