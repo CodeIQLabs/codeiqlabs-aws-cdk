@@ -217,6 +217,10 @@ export class CloudFrontVpcOriginStack extends BaseStack {
         aliases: domainNames,
         origins,
         defaultCacheBehavior: this.createCacheBehavior(subdomain, origins[0].id),
+        // Additional cache behaviors for S3 origins to properly cache static assets
+        // while keeping index.html uncached for SPA deployments
+        cacheBehaviors:
+          subdomain.originType === 's3' ? this.createS3CacheBehaviors(origins[0].id) : undefined,
         viewerCertificate: {
           acmCertificateArn: certificateArn,
           sslSupportMethod: 'sni-only',
@@ -330,7 +334,11 @@ export class CloudFrontVpcOriginStack extends BaseStack {
       //   3. nprd.savvue.com zone (in workload account) has A record: api-gw → API Gateway
       const originDomain = `api-gw.${subdomain.environment}.${subdomain.domain}`;
 
-      // Custom headers for API Gateway routing (optional, for logging/tracing)
+      // Custom headers for API Gateway routing and Auth.js cookie domain support
+      // X-Forwarded-Host: The viewer-facing CloudFront domain (e.g., nprd-api.savvue.com)
+      //   This is critical for Auth.js to set cookies with the correct domain.
+      //   Since we use AllViewerExceptHostHeader, the Lambda receives Host: api-gw.nprd.savvue.com
+      //   but cookies need to be set for the viewer domain (nprd-api.savvue.com).
       const customHeaders = [
         {
           headerName: 'X-Forwarded-Brand',
@@ -339,6 +347,10 @@ export class CloudFrontVpcOriginStack extends BaseStack {
         {
           headerName: 'X-Forwarded-Service',
           headerValue: subdomain.type,
+        },
+        {
+          headerName: 'X-Forwarded-Host',
+          headerValue: subdomain.fqdn,
         },
       ];
 
@@ -388,16 +400,33 @@ export class CloudFrontVpcOriginStack extends BaseStack {
     originId: string,
   ): cloudfront.CfnDistribution.DefaultCacheBehaviorProperty {
     if (subdomain.originType === 's3') {
+      // For S3 SPA origins, the DEFAULT behavior handles index.html and unknown paths
+      // Use CachingDisabled so users always get the latest index.html after deployments
+      // Static assets (JS/CSS with hashes) are cached via additional cache behaviors
       return {
         targetOriginId: originId,
         viewerProtocolPolicy: 'redirect-to-https',
-        cachePolicyId: '658327ea-f89d-4fab-a63d-7e88639e58f6', // CachingOptimized
+        cachePolicyId: '4135ea2d-6df8-44a3-9df3-4b5a84be39ad', // CachingDisabled for index.html
         originRequestPolicyId: '88a5eaf4-2fd4-4709-b370-b4c650ea3fcf', // CORS-S3Origin
         compress: true,
         allowedMethods: ['GET', 'HEAD', 'OPTIONS'],
         cachedMethods: ['GET', 'HEAD', 'OPTIONS'],
       };
+    } else if (subdomain.originType === 'apiGateway') {
+      // API Gateway requires Host header to match its custom domain (api-gw.{env}.{brand}.com)
+      // Use AllViewerExceptHostHeader so CloudFront sends the origin domain as Host header
+      // instead of the viewer's Host header (e.g., nprd-api.savvue.com)
+      return {
+        targetOriginId: originId,
+        viewerProtocolPolicy: 'redirect-to-https',
+        cachePolicyId: '4135ea2d-6df8-44a3-9df3-4b5a84be39ad', // CachingDisabled
+        originRequestPolicyId: 'b689b0a8-53d0-40ab-baf2-68738e2966ac', // AllViewerExceptHostHeader
+        compress: true,
+        allowedMethods: ['DELETE', 'GET', 'HEAD', 'OPTIONS', 'PATCH', 'POST', 'PUT'],
+        cachedMethods: ['GET', 'HEAD'],
+      };
     } else {
+      // ALB origin - can use AllViewer since ALB doesn't validate Host header
       return {
         targetOriginId: originId,
         viewerProtocolPolicy: 'redirect-to-https',
@@ -408,6 +437,60 @@ export class CloudFrontVpcOriginStack extends BaseStack {
         cachedMethods: ['GET', 'HEAD'],
       };
     }
+  }
+
+  /**
+   * Create additional cache behaviors for S3 SPA origins
+   *
+   * These behaviors cache static assets (JS, CSS, images, fonts) with long TTLs
+   * since they have content hashes in their filenames. The default behavior
+   * (index.html) uses CachingDisabled so users always get the latest version.
+   *
+   * Pattern priority (lower number = higher priority):
+   * 1. /assets/* - Vite/Expo bundled assets with hashes (1 year cache)
+   * 2. /_next/* - Next.js static assets (1 year cache)
+   * 3. /static/* - Generic static assets (1 year cache)
+   * 4. *.js, *.css - Root level bundled files with hashes (1 year cache)
+   * 5. Default (*) - index.html and unknown paths (no cache)
+   */
+  private createS3CacheBehaviors(
+    originId: string,
+  ): cloudfront.CfnDistribution.CacheBehaviorProperty[] {
+    // CachingOptimized policy ID - caches based on origin headers, 1 day default TTL
+    const cachingOptimizedPolicyId = '658327ea-f89d-4fab-a63d-7e88639e58f6';
+    const corsS3OriginPolicyId = '88a5eaf4-2fd4-4709-b370-b4c650ea3fcf';
+
+    const baseBehavior = {
+      targetOriginId: originId,
+      viewerProtocolPolicy: 'redirect-to-https' as const,
+      cachePolicyId: cachingOptimizedPolicyId,
+      originRequestPolicyId: corsS3OriginPolicyId,
+      compress: true,
+      allowedMethods: ['GET', 'HEAD', 'OPTIONS'],
+      cachedMethods: ['GET', 'HEAD', 'OPTIONS'],
+    };
+
+    return [
+      // Vite/Expo bundled assets (highest priority)
+      { ...baseBehavior, pathPattern: '/assets/*' },
+      // Next.js static assets
+      { ...baseBehavior, pathPattern: '/_next/*' },
+      // Generic static folder
+      { ...baseBehavior, pathPattern: '/static/*' },
+      // Images
+      { ...baseBehavior, pathPattern: '*.png' },
+      { ...baseBehavior, pathPattern: '*.jpg' },
+      { ...baseBehavior, pathPattern: '*.jpeg' },
+      { ...baseBehavior, pathPattern: '*.gif' },
+      { ...baseBehavior, pathPattern: '*.svg' },
+      { ...baseBehavior, pathPattern: '*.ico' },
+      { ...baseBehavior, pathPattern: '*.webp' },
+      // Fonts
+      { ...baseBehavior, pathPattern: '*.woff' },
+      { ...baseBehavior, pathPattern: '*.woff2' },
+      { ...baseBehavior, pathPattern: '*.ttf' },
+      { ...baseBehavior, pathPattern: '*.eot' },
+    ];
   }
 
   /**

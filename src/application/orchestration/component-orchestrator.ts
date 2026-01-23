@@ -59,6 +59,7 @@
 
 import type { CdkApplication } from '../cdk-application';
 import type { UnifiedAppConfig } from '@codeiqlabs/aws-utils';
+import * as lambda from 'aws-cdk-lib/aws-lambda';
 import { BaseOrchestrator, OrchestrationError } from './base-orchestrator';
 import { ManagementOrganizationsStack } from '../../stacks/organizations/organizations-stack';
 import { ManagementIdentityCenterStack } from '../../stacks/identity-center/identity-center-stack';
@@ -75,6 +76,8 @@ import {
   LambdaFunctionStack,
   ApiGatewayStack,
   EventBridgeStack,
+  ProductSeedStack,
+  EventHandlerLambdaStack,
 } from '../../stacks/workload';
 import {
   RootDomainStack,
@@ -575,6 +578,13 @@ export class ComponentOrchestrator implements BaseOrchestrator {
             .filter((app: any) => app.marketingS3 === true)
             .map((app: any) => app.name);
 
+          // Brands with eventHandlers: true (EventBridge event handler Lambda functions)
+          // Creates: tier-changed-{brand}, upgrade-handler-{brand}, trial-expiry-{brand} Lambdas
+          // Creates: EventBridge rules filtered by productId
+          const eventHandlerBrands = saasWorkload
+            .filter((app: any) => app.eventHandlers === true)
+            .map((app: any) => app.name);
+
           // Brands with any non-marketing services (for DynamoDB/Secrets creation)
           const nonMarketingBrands = saasWorkload
             .filter((app: any) => app.lambdaApi === true)
@@ -615,6 +625,13 @@ export class ComponentOrchestrator implements BaseOrchestrator {
                   perBrand: true,
                   jsonFields: ['clientId', 'clientSecret'],
                 },
+                // Brand-specific Plaid secrets (for banking/investment integrations)
+                {
+                  key: 'plaid',
+                  description: 'Plaid API credentials',
+                  perBrand: true,
+                  jsonFields: ['clientId', 'secret', 'env', 'webhookUrl'],
+                },
               ];
 
               new SaasSecretsStack(app, envNaming.stackName('Secrets'), {
@@ -649,6 +666,37 @@ export class ComponentOrchestrator implements BaseOrchestrator {
                 deletionProtection: isProd,
                 env: envEnv,
               });
+
+              // 2b. Product Seed Stack (seeds product entities into core table)
+              // Products are derived from saasWorkload (excluding 'core')
+              // Only runs during CDK deployment, not on Lambda cold starts
+              const coreTable = dynamodbStack.tables.get('core');
+              if (coreTable) {
+                // Build products from saasWorkload (exclude 'core' which is not a product)
+                const products = saasWorkload
+                  .filter((app: any) => app.name !== 'core')
+                  .map((app: any) => ({
+                    id: app.name,
+                    name: app.name.charAt(0).toUpperCase() + app.name.slice(1), // Capitalize
+                    description: app.domain
+                      ? `${app.name.charAt(0).toUpperCase() + app.name.slice(1)} platform`
+                      : undefined,
+                  }));
+
+                if (products.length > 0) {
+                  const productSeedStack = new ProductSeedStack(
+                    app,
+                    envNaming.stackName('ProductSeed'),
+                    {
+                      stackConfig,
+                      products,
+                      coreTable,
+                      env: envEnv,
+                    },
+                  );
+                  productSeedStack.addDependency(dynamodbStack);
+                }
+              }
             } catch (error) {
               throw new OrchestrationError(
                 `Failed to create DynamoDB stack for environment ${envName}`,
@@ -660,14 +708,17 @@ export class ComponentOrchestrator implements BaseOrchestrator {
 
           // 3. ECR Repository Stack (for Lambda container images)
           // Lambda functions use Docker images from ECR
+          // Also creates repositories for event handlers if eventHandlerBrands is set
           let ecrStack: EcrRepositoryStack | undefined;
-          if (lambdaApiBrands.length > 0) {
+          if (lambdaApiBrands.length > 0 || eventHandlerBrands.length > 0) {
             try {
               ecrStack = new EcrRepositoryStack(app, envNaming.stackName('ECR'), {
                 stackConfig,
                 repositoryConfig: {
                   webappBrands: [], // No ECS webapps
                   apiBrands: lambdaApiBrands,
+                  eventHandlerBrands:
+                    eventHandlerBrands.length > 0 ? eventHandlerBrands : undefined,
                 },
                 env: envEnv,
               });
@@ -685,15 +736,61 @@ export class ComponentOrchestrator implements BaseOrchestrator {
           // Derived from lambdaApi: true in saasWorkload brands
           if (lambdaApiBrands.length > 0 && dynamodbStack) {
             try {
+              // Collect all brand Stripe configs for api-core
+              // api-core handles billing for all brands, so it needs all Stripe price IDs
+              const allBrandStripeEnvVars: Record<string, string> = {};
+              for (const app of saasWorkload) {
+                if (app.stripe?.[envName]) {
+                  const stripeConfig = app.stripe[envName];
+                  const brandUpper = app.name.toUpperCase();
+                  if (stripeConfig.priceIdMonthly) {
+                    allBrandStripeEnvVars[`STRIPE_PRICE_ID_MONTHLY_${brandUpper}`] =
+                      stripeConfig.priceIdMonthly;
+                  }
+                  if (stripeConfig.priceIdAnnual) {
+                    allBrandStripeEnvVars[`STRIPE_PRICE_ID_ANNUAL_${brandUpper}`] =
+                      stripeConfig.priceIdAnnual;
+                  }
+                }
+              }
+
               // Build Lambda function configs from lambdaApiBrands
               // ECR repos are named {brand}-api (e.g., core-api, savvue-api)
               // Lambda functions are named api-{brand} (e.g., api-core, api-savvue)
-              const lambdaFunctions = lambdaApiBrands.map((brand) => ({
-                name: `api-${brand}`,
-                ecrRepositoryName: `${brand}-api`, // Match ECR naming: {brand}-api
-                memorySize: lambdaDefaults?.memorySize ?? 1024,
-                timeout: lambdaDefaults?.timeout ?? 30,
-              }));
+              const lambdaFunctions = lambdaApiBrands.map((brand) => {
+                // Build environment variables for this brand
+                const environment: Record<string, string> = {};
+
+                // For api-core: include ALL brand Stripe price IDs (handles billing for all brands)
+                // For brand-specific APIs: include only that brand's Stripe config
+                if (brand === 'core') {
+                  Object.assign(environment, allBrandStripeEnvVars);
+                } else {
+                  // Add Stripe price IDs from saasWorkload configuration
+                  // These are environment-specific (stripe.nprd, stripe.prod)
+                  const brandConfig = saasWorkload.find((app: any) => app.name === brand);
+                  if (brandConfig?.stripe?.[envName]) {
+                    const stripeConfig = brandConfig.stripe[envName];
+                    const brandUpper = brand.toUpperCase();
+                    if (stripeConfig.priceIdMonthly) {
+                      environment[`STRIPE_PRICE_ID_MONTHLY_${brandUpper}`] =
+                        stripeConfig.priceIdMonthly;
+                    }
+                    if (stripeConfig.priceIdAnnual) {
+                      environment[`STRIPE_PRICE_ID_ANNUAL_${brandUpper}`] =
+                        stripeConfig.priceIdAnnual;
+                    }
+                  }
+                }
+
+                return {
+                  name: `api-${brand}`,
+                  ecrRepositoryName: `${brand}-api`, // Match ECR naming: {brand}-api
+                  memorySize: lambdaDefaults?.memorySize ?? 1024,
+                  timeout: lambdaDefaults?.timeout ?? 30,
+                  environment: Object.keys(environment).length > 0 ? environment : undefined,
+                };
+              });
 
               // Resolve EventBridge bus name with environment placeholder
               const eventBridgeBusName = lambdaDefaults?.eventBridgeBusName
@@ -767,25 +864,94 @@ export class ComponentOrchestrator implements BaseOrchestrator {
                 );
                 apiGatewayStack.addDependency(lambdaStack);
 
-                // 7c. EventBridge Stack (event bus for async communication)
+                // 7c. Event Handler Lambda Stack (for EventBridge event handlers)
+                // MUST be created BEFORE EventBridge stack so Lambda functions exist
+                // when EventBridge rules are created with Lambda targets
+                // Creates Lambda functions for subscription event handling:
+                // - tier-changed-{brand}: Handles subscription.tier.changed events
+                // - upgrade-handler-{brand}: Handles subscription.upgraded events
+                // - trial-expiry-{brand}: Handles subscription.trial.expired events
+                // Depends on: DynamoDB (for table access), ECR (for container images)
+                let eventHandlerStack: EventHandlerLambdaStack | undefined;
+                let eventHandlerFunctions: Map<string, lambda.Function> | undefined;
+                if (eventHandlerBrands.length > 0 && dynamodbStack && ecrStack) {
+                  try {
+                    // Resolve EventBridge bus name with environment placeholder
+                    const eventBridgeBusNameForHandlers = lambdaDefaults?.eventBridgeBusName
+                      ? (lambdaDefaults.eventBridgeBusName as string).replace('{env}', envName)
+                      : undefined;
+
+                    // Build handler configs from eventHandlerBrands
+                    const handlers = eventHandlerBrands.map((brand) => ({
+                      brand,
+                      memorySize: lambdaDefaults?.memorySize ?? 1024,
+                      timeout: lambdaDefaults?.timeout ?? 30,
+                    }));
+
+                    eventHandlerStack = new EventHandlerLambdaStack(
+                      app,
+                      envNaming.stackName('EventHandlerLambda'),
+                      {
+                        stackConfig,
+                        handlers,
+                        dynamodbTables: dynamodbStack.tables,
+                        eventBridgeBusName: eventBridgeBusNameForHandlers,
+                        env: envEnv,
+                      },
+                    );
+
+                    // Set up stack dependencies:
+                    // - DynamoDB must exist before event handlers (for table access)
+                    // - ECR must exist before event handlers (for container images)
+                    eventHandlerStack.addDependency(dynamodbStack);
+                    eventHandlerStack.addDependency(ecrStack);
+
+                    // Store Lambda functions for EventBridge stack
+                    eventHandlerFunctions = eventHandlerStack.functions;
+                  } catch (error) {
+                    throw new OrchestrationError(
+                      `Failed to create Event Handler Lambda stack for environment ${envName}`,
+                      'saasWorkload',
+                      error instanceof Error ? error : new Error(String(error)),
+                    );
+                  }
+                }
+
+                // 7d. EventBridge Stack (event bus for async communication)
                 // Create event bus with routing rules for subscription events
                 // Note: Lambda functions get EventBridge permissions via environment variables
                 // and IAM policies configured in the Lambda stack, not via cross-stack grants
+                // Event handler rules are created when eventHandlerBrands is set
+                // IMPORTANT: EventHandlerLambdaStack must be created BEFORE this stack
+                // so we can pass Lambda functions directly instead of looking them up from SSM
                 try {
-                  new EventBridgeStack(app, envNaming.stackName('EventBridge'), {
-                    stackConfig,
-                    config: {
-                      // Event rules will be configured when Lambda handlers are ready
-                      eventRules: [],
-                      dlqRetentionDays: 14,
-                      publisherBrands: [...lambdaApiBrands, ...webappS3Brands],
+                  const eventBridgeStack = new EventBridgeStack(
+                    app,
+                    envNaming.stackName('EventBridge'),
+                    {
+                      stackConfig,
+                      config: {
+                        // Event rules will be configured when Lambda handlers are ready
+                        eventRules: [],
+                        dlqRetentionDays: 14,
+                        publisherBrands: [...lambdaApiBrands, ...webappS3Brands],
+                        // Pass eventHandlerBrands to create rules for event handlers
+                        // Rules are created with productId filter to route to brand-specific handlers
+                        eventHandlerBrands:
+                          eventHandlerBrands.length > 0 ? eventHandlerBrands : undefined,
+                      },
+                      // Pass Lambda functions directly to avoid SSM lookup at synth time
+                      // This works because EventHandlerLambdaStack is created before EventBridgeStack
+                      lambdaFunctions: eventHandlerFunctions,
+                      env: envEnv,
                     },
-                    // Don't pass lambdaFunctions to avoid cyclic dependency
-                    // Lambda functions will look up EventBridge ARN from SSM
-                    env: envEnv,
-                  });
-                  // Note: No dependency on lambdaStack to avoid cyclic reference
-                  // EventBridge stack exports bus ARN to SSM, Lambda functions import it
+                  );
+
+                  // EventBridge stack depends on event handler Lambda stack
+                  // (Lambda functions must exist before rules can target them)
+                  if (eventHandlerStack) {
+                    eventBridgeStack.addDependency(eventHandlerStack);
+                  }
                 } catch (error) {
                   throw new OrchestrationError(
                     `Failed to create EventBridge stack for environment ${envName}`,

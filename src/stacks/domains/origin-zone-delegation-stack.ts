@@ -59,12 +59,8 @@ export class OriginZoneDelegationStack extends BaseStack {
   private processDomain(domain: any, _environments: Record<string, any>): void {
     const parentDomain = domain.name;
 
-    // Skip codeiqlabs.com (no app/api subdomains)
-    if (parentDomain === 'codeiqlabs.com') {
-      return;
-    }
-
     // Check if this domain has origin zone config
+    // Domains without originZones are skipped (e.g., marketing-only domains)
     const originZones = domain.originZones;
     if (!originZones) {
       return;

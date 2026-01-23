@@ -193,18 +193,6 @@ cd ../codeiqlabs-customization-aws && rm -rf node_modules pnpm-lock.yaml && pnpm
 - **How**: All stacks extend BaseStack which provides ResourceNaming instance
 - **Trade-off**: Inheritance hierarchy, but guaranteed consistency
 
-### Separate ACM/WAF Stack
-
-- **Why**: CloudFront requires certificates in us-east-1
-- **How**: AcmAndWafStack deploys to us-east-1, other stacks deploy to target region
-- **Trade-off**: Cross-region dependencies, but required by AWS
-
-### VPC Origins for Private ALBs
-
-- **Why**: Keep ALBs internal while exposing via CloudFront
-- **How**: CloudFront VPC origins connect to internal ALBs via private subnets
-- **Trade-off**: More complex networking, but better security
-
 ### Header-Based Routing
 
 - **Why**: Single ALB serves multiple services (webapp, api) per brand
@@ -214,6 +202,10 @@ cd ../codeiqlabs-customization-aws && rm -rf node_modules pnpm-lock.yaml && pnpm
 ## Anti-Patterns
 
 - **Don't hardcode account IDs or regions** - Use manifest.yaml and environment configuration
+- **Don't hardcode brand/company names** - Use `this.naming.ssmParameterName()` or
+  `stackConfig.company` instead of hardcoding `/codeiqlabs/...` or `codeiqlabs.com`
+- **Don't hardcode domain names in filters** - Use manifest flags (e.g., check distribution types)
+  instead of `domain !== 'codeiqlabs.com'`
 - **Don't create circular stack dependencies** - Use SSM parameters or direct references
 - **Don't bypass BaseStack** - All stacks must extend BaseStack for consistent naming/tagging
 - **Don't use `enabled: true` flags** - Presence in manifest implies enabled
@@ -223,6 +215,77 @@ cd ../codeiqlabs-customization-aws && rm -rf node_modules pnpm-lock.yaml && pnpm
 - **Don't use published versions in local dev** - Use `file:../` references for local development
 - **Don't create stacks in wrong accounts** - Management stacks → mgmt, Workload stacks → nprd/prod
 - **Don't mix CloudFront and non-CloudFront certs** - CloudFront certs must be in us-east-1
+
+## Reusable by Design
+
+This library must be **brand-agnostic** and **company-agnostic**. All organization-specific values
+must come from manifest files, not hardcoded in the library.
+
+### SSM Parameter Paths
+
+**Wrong** (hardcoded company name):
+
+```typescript
+const ssmPrefix = `/codeiqlabs/saas/${environment}`;
+new ssm.StringParameter(this, 'Param', {
+  parameterName: `${ssmPrefix}/alb/arn`,
+});
+```
+
+**Right** (use naming utility):
+
+```typescript
+new ssm.StringParameter(this, 'Param', {
+  parameterName: this.naming.ssmParameterName('alb', 'arn'),
+});
+```
+
+For org-level parameters (not project-scoped):
+
+```typescript
+const company = this.getStackConfig().company.toLowerCase();
+new ssm.StringParameter(this, 'Param', {
+  parameterName: `/${company}/org/account-id`,
+});
+```
+
+### Domain Filtering
+
+**Wrong** (hardcoded domain name):
+
+```typescript
+const brandDomains = saasEdge.filter((edge) => edge.domain !== 'codeiqlabs.com');
+```
+
+**Right** (use manifest-driven logic):
+
+```typescript
+// Filter based on distribution types - marketing-only domains don't need subdomain delegation
+const brandDomains = saasEdge.filter((edge) => {
+  const distributions = edge.distributions;
+  return distributions.some((d) => d.type === 'webapp' || d.type === 'api');
+});
+```
+
+### Origin Domains
+
+**Wrong** (hardcoded domain):
+
+```typescript
+this.originDomain = `origin-${props.environment}.codeiqlabs.com`;
+```
+
+**Right** (use props):
+
+```typescript
+this.originDomain = `origin-${props.environment}.${props.hostedZoneName}`;
+```
+
+### What's Acceptable
+
+- **Import statements**: `import { ... } from '@codeiqlabs/aws-utils'` - Package names are fine
+- **JSDoc examples**: Using brand names in documentation examples is acceptable
+- **Comments**: Explaining architecture with example domains is fine
 
 ## Key Files
 

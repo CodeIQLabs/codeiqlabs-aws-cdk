@@ -6,11 +6,11 @@
  * to include additional common parameters in the future.
  *
  * Parameters created (when accountIds: true):
- * - /codeiqlabs/org/account-id - The workload account's own account ID
- * - /codeiqlabs/org/management-account-id - The management account ID
+ * - /{company}/org/account-id - The workload account's own account ID
+ * - /{company}/org/management-account-id - The management account ID
  *
  * Parameters created (when delegationRoleArns is provided):
- * - /codeiqlabs/route53/{domain}/delegation-role-arn - Cross-account delegation role ARN
+ * - /{company}/route53/{domain}/delegation-role-arn - Cross-account delegation role ARN
  *
  * Values are derived from the environments section in the manifest.
  * This stack is deployed by customization-aws to workload accounts.
@@ -74,13 +74,15 @@ export class WorkloadParamsStack extends BaseStack {
 
     const config = props.paramsConfig ?? {};
     const stackConfig = this.getStackConfig();
-    const ssmPrefix = '/codeiqlabs/org';
+    // Use company from naming config for org-level SSM parameters
+    const company = stackConfig.company.toLowerCase();
+    const orgPrefix = `/${company}/org`;
 
     // Create account ID parameters when accountIds flag is true
     if (config.accountIds) {
       // SSM parameter for this account's own account ID
       this.accountIdParameter = new ssm.StringParameter(this, 'AccountIdParameter', {
-        parameterName: `${ssmPrefix}/account-id`,
+        parameterName: `${orgPrefix}/account-id`,
         stringValue: stackConfig.accountId,
         description: `Account ID for ${stackConfig.environment} environment`,
         tier: ssm.ParameterTier.STANDARD,
@@ -91,7 +93,7 @@ export class WorkloadParamsStack extends BaseStack {
         this,
         'ManagementAccountIdParameter',
         {
-          parameterName: `${ssmPrefix}/management-account-id`,
+          parameterName: `${orgPrefix}/management-account-id`,
           stringValue: props.managementAccountId,
           description: 'Management account ID for cross-account operations',
           tier: ssm.ParameterTier.STANDARD,
@@ -117,7 +119,7 @@ export class WorkloadParamsStack extends BaseStack {
       let index = 0;
       for (const [domain, roleArn] of Object.entries(props.delegationRoleArns)) {
         const param = new ssm.StringParameter(this, `DelegationRoleArn${index}`, {
-          parameterName: `/codeiqlabs/route53/${domain}/delegation-role-arn`,
+          parameterName: `/${company}/route53/${domain}/delegation-role-arn`,
           stringValue: roleArn,
           description: `Delegation role ARN for ${domain} subdomain delegation (cross-account)`,
           tier: ssm.ParameterTier.STANDARD,

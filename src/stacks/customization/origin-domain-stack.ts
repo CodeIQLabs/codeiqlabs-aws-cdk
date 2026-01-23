@@ -1,13 +1,13 @@
 /**
  * Origin Domain Stack for Customization
  *
- * Creates a predictable Route53 A record (origin-{env}.codeiqlabs.com) that points to the ALB.
+ * Creates a predictable Route53 A record (origin-{env}.{domain}) that points to the ALB.
  * This enables CloudFront to use predictable origin domains without SSM parameter lookups,
  * solving the chicken-and-egg deployment issue.
  *
  * Architecture:
- * - CloudFront uses predictable domain: origin-nprd.codeiqlabs.com (hardcoded)
- * - Route53 A record (Alias): origin-nprd.codeiqlabs.com → ALB DNS
+ * - CloudFront uses predictable domain: origin-{env}.{domain} (from manifest)
+ * - Route53 A record (Alias): origin-{env}.{domain} → ALB DNS
  * - No SSM lookups needed at synthesis time
  * - No cross-account token issues
  *
@@ -29,9 +29,9 @@ export interface OriginDomainStackProps extends BaseStackProps {
   alb: elbv2.IApplicationLoadBalancer;
   /** Environment name (e.g., 'nprd', 'prod') - used to generate origin domain */
   environment: string;
-  /** Hosted Zone ID for codeiqlabs.com (from management account) */
+  /** Hosted Zone ID for the origin domain (from management account) */
   hostedZoneId: string;
-  /** Hosted Zone name (e.g., 'codeiqlabs.com') */
+  /** Hosted Zone name (e.g., 'example.com') - used to construct origin domain */
   hostedZoneName: string;
 }
 
@@ -41,21 +41,21 @@ export interface OriginDomainStackProps extends BaseStackProps {
  * Creates a Route53 A record that provides a predictable origin domain for CloudFront.
  */
 export class OriginDomainStack extends BaseStack {
-  /** The origin domain created (e.g., origin-nprd.codeiqlabs.com) */
+  /** The origin domain created (e.g., origin-nprd.example.com) */
   public readonly originDomain: string;
 
   constructor(scope: Construct, id: string, props: OriginDomainStackProps) {
     super(scope, id, 'OriginDomain', props);
 
-    // Reference codeiqlabs.com hosted zone from management account
+    // Reference hosted zone from management account
     // Using fromHostedZoneAttributes to avoid cross-account lookup issues
-    const hostedZone = route53.HostedZone.fromHostedZoneAttributes(this, 'CodeIQLabsZone', {
+    const hostedZone = route53.HostedZone.fromHostedZoneAttributes(this, 'OriginHostedZone', {
       hostedZoneId: props.hostedZoneId,
       zoneName: props.hostedZoneName,
     });
 
-    // Create predictable origin domain: origin-{env}.codeiqlabs.com
-    this.originDomain = `origin-${props.environment}.codeiqlabs.com`;
+    // Create predictable origin domain: origin-{env}.{hostedZoneName}
+    this.originDomain = `origin-${props.environment}.${props.hostedZoneName}`;
 
     // Create Route53 A record (Alias to ALB)
     // Alias records are free and automatically update if ALB IPs change

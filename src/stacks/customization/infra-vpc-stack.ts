@@ -131,34 +131,33 @@ export class InfraVpcStack extends BaseStack {
     );
 
     // Export via SSM
-    const ssmPrefix = `/codeiqlabs/saas/${stackConfig.environment}`;
     new ssm.StringParameter(this, 'SsmVpcId', {
-      parameterName: `${ssmPrefix}/vpc/id`,
+      parameterName: this.naming.ssmParameterName('vpc', 'id'),
       stringValue: this.vpc.vpcId,
       description: `VPC ID for ${stackConfig.environment} environment`,
     });
     new ssm.StringParameter(this, 'SsmPrivateSubnetIds', {
-      parameterName: `${ssmPrefix}/vpc/private-subnet-ids`,
+      parameterName: this.naming.ssmParameterName('vpc', 'private-subnet-ids'),
       stringValue: this.vpc.privateSubnets.map((s) => s.subnetId).join(','),
       description: `Private subnet IDs for ${stackConfig.environment} environment`,
     });
     new ssm.StringParameter(this, 'SsmPublicSubnetIds', {
-      parameterName: `${ssmPrefix}/vpc/public-subnet-ids`,
+      parameterName: this.naming.ssmParameterName('vpc', 'public-subnet-ids'),
       stringValue: this.vpc.publicSubnets.map((s) => s.subnetId).join(','),
       description: `Public subnet IDs for ${stackConfig.environment} environment`,
     });
     new ssm.StringParameter(this, 'SsmIsolatedSubnetIds', {
-      parameterName: `${ssmPrefix}/vpc/isolated-subnet-ids`,
+      parameterName: this.naming.ssmParameterName('vpc', 'isolated-subnet-ids'),
       stringValue: this.vpc.isolatedSubnets.map((s) => s.subnetId).join(','),
       description: `Isolated subnet IDs for ${stackConfig.environment} environment`,
     });
     new ssm.StringParameter(this, 'SsmAlbSecurityGroupId', {
-      parameterName: `${ssmPrefix}/alb/security-group-id`,
+      parameterName: this.naming.ssmParameterName('alb', 'security-group-id'),
       stringValue: this.albSecurityGroup.securityGroupId,
       description: `ALB Security Group ID for ${stackConfig.environment} environment`,
     });
     new ssm.StringParameter(this, 'SsmEcsSecurityGroupId', {
-      parameterName: `${ssmPrefix}/vpc/ecs-security-group-id`,
+      parameterName: this.naming.ssmParameterName('vpc', 'ecs-security-group-id'),
       stringValue: this.ecsSecurityGroup.securityGroupId,
       description: `ECS Security Group ID for ${stackConfig.environment} environment`,
     });

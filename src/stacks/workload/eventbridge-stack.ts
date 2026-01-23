@@ -9,6 +9,12 @@
  * - Rules for subscription events (trial expired, upgraded, downgraded)
  * - Lambda targets with retry logic
  *
+ * Event Handler Rules:
+ * When `eventHandlerBrands` is provided, creates rules for each brand:
+ * - subscription.tier.changed (productId={brand}) → tier-changed-{brand} Lambda
+ * - subscription.upgraded (productId={brand}) → upgrade-handler-{brand} Lambda
+ * - subscription.trial.expired (productId={brand}) → trial-expiry-{brand} Lambda
+ *
  * @example
  * ```typescript
  * new EventBridgeStack(app, 'EventBridge', {
@@ -30,6 +36,8 @@
  *         targetLambdaName: 'trial-expiry-savvue',
  *       },
  *     ],
+ *     // Automatically create event handler rules for these brands
+ *     eventHandlerBrands: ['savvue', 'equitrio'],
  *   },
  * });
  * ```
@@ -100,6 +108,25 @@ export interface EventBridgeConfig {
    * Brands that can publish events (for granting permissions)
    */
   publisherBrands?: string[];
+
+  /**
+   * Brands that have event handlers enabled.
+   * For each brand, creates EventBridge rules for:
+   * - subscription.tier.changed (productId={brand}) → tier-changed-{brand} Lambda
+   * - subscription.upgraded (productId={brand}) → upgrade-handler-{brand} Lambda
+   * - subscription.trial.expired (productId={brand}) → trial-expiry-{brand} Lambda
+   *
+   * Rules are configured with:
+   * - 3 retry attempts with exponential backoff
+   * - Dead Letter Queue for failed events
+   */
+  eventHandlerBrands?: string[];
+
+  /**
+   * Number of retry attempts for event handler rules
+   * @default 3
+   */
+  eventHandlerRetryAttempts?: number;
 }
 
 export interface EventBridgeStackProps extends BaseStackProps {
@@ -128,11 +155,6 @@ export class EventBridgeStack extends BaseStack {
     super(scope, id, 'EventBridge', props);
 
     const { config, lambdaFunctions } = props;
-    const stackConfig = this.getStackConfig();
-    const envName = stackConfig.environment;
-
-    // SSM parameter prefix
-    const ssmPrefix = `/codeiqlabs/saas/${envName}`;
 
     // Create Event Bus
     this.eventBus = new events.EventBus(this, 'EventBus', {
@@ -148,46 +170,15 @@ export class EventBridgeStack extends BaseStack {
 
     // Create rules for each event configuration
     for (const rule of config.eventRules ?? []) {
-      // Build event pattern
-      const eventPattern: events.EventPattern = {
-        source: [rule.source],
-        detailType: [rule.detailType],
-        ...(rule.detailFilter && { detail: rule.detailFilter }),
-      };
+      this.createEventRule(rule, lambdaFunctions);
+    }
 
-      // Create rule
-      const eventRule = new events.Rule(this, `${rule.name}Rule`, {
-        eventBus: this.eventBus,
-        ruleName: this.naming.resourceName(rule.name),
-        eventPattern,
-      });
-
-      // Add Lambda target if specified
-      if (rule.targetLambdaName) {
-        let lambdaFn: lambda.IFunction;
-
-        if (lambdaFunctions?.has(rule.targetLambdaName)) {
-          lambdaFn = lambdaFunctions.get(rule.targetLambdaName)!;
-        } else {
-          // Import Lambda function ARN from SSM
-          const lambdaArn = ssm.StringParameter.valueFromLookup(
-            this,
-            `${ssmPrefix}/lambda/${rule.targetLambdaName}-arn`,
-          );
-          lambdaFn = lambda.Function.fromFunctionArn(
-            this,
-            `${rule.targetLambdaName}Function`,
-            lambdaArn,
-          );
-        }
-
-        eventRule.addTarget(
-          new targets.LambdaFunction(lambdaFn, {
-            deadLetterQueue: this.deadLetterQueue,
-            retryAttempts: rule.retryAttempts ?? 3,
-          }),
-        );
-      }
+    // Create event handler rules for each brand with eventHandlers enabled
+    // This creates rules for subscription.tier.changed and subscription.upgraded events
+    // filtered by productId to route to brand-specific Lambda handlers
+    if (config.eventHandlerBrands && config.eventHandlerBrands.length > 0) {
+      const retryAttempts = config.eventHandlerRetryAttempts ?? 3;
+      this.createEventHandlerRules(config.eventHandlerBrands, retryAttempts, lambdaFunctions);
     }
 
     // Store EventBridge parameters in SSM
@@ -234,5 +225,128 @@ export class EventBridgeStack extends BaseStack {
    */
   public grantPublish(lambdaFn: lambda.IFunction): void {
     this.eventBus.grantPutEventsTo(lambdaFn);
+  }
+
+  /**
+   * Create an EventBridge rule from configuration
+   */
+  private createEventRule(
+    rule: EventRuleConfig,
+    lambdaFunctions: Map<string, lambda.IFunction> | undefined,
+  ): events.Rule {
+    // Build event pattern
+    const eventPattern: events.EventPattern = {
+      source: [rule.source],
+      detailType: [rule.detailType],
+      ...(rule.detailFilter && { detail: rule.detailFilter }),
+    };
+
+    // Create rule
+    const eventRule = new events.Rule(this, `${rule.name}Rule`, {
+      eventBus: this.eventBus,
+      ruleName: this.naming.resourceName(rule.name),
+      eventPattern,
+    });
+
+    // Add Lambda target if specified
+    if (rule.targetLambdaName) {
+      const lambdaFn = this.getLambdaFunction(rule.targetLambdaName, lambdaFunctions);
+
+      eventRule.addTarget(
+        new targets.LambdaFunction(lambdaFn, {
+          deadLetterQueue: this.deadLetterQueue,
+          retryAttempts: rule.retryAttempts ?? 3,
+        }),
+      );
+    }
+
+    return eventRule;
+  }
+
+  /**
+   * Get a Lambda function by name, either from the provided map or by importing from SSM
+   */
+  private getLambdaFunction(
+    functionName: string,
+    lambdaFunctions: Map<string, lambda.IFunction> | undefined,
+  ): lambda.IFunction {
+    if (lambdaFunctions?.has(functionName)) {
+      return lambdaFunctions.get(functionName)!;
+    }
+
+    // Import Lambda function ARN from SSM using naming convention
+    const lambdaArn = ssm.StringParameter.valueFromLookup(
+      this,
+      this.naming.ssmParameterName('lambda', `${functionName}-arn`),
+    );
+    return lambda.Function.fromFunctionArn(this, `${functionName}Function`, lambdaArn);
+  }
+
+  /**
+   * Create EventBridge rules for event handlers for each brand.
+   *
+   * For each brand, creates three rules:
+   * 1. subscription.tier.changed (productId={brand}) → tier-changed-{brand} Lambda
+   * 2. subscription.upgraded (productId={brand}) → upgrade-handler-{brand} Lambda
+   * 3. subscription.trial.expired (productId={brand}) → trial-expiry-{brand} Lambda
+   *
+   * Rules are configured with:
+   * - Source: 'api-core' (the shared service that publishes subscription events)
+   * - Detail filter: productId matches the brand name
+   * - Retry attempts: configurable (default 3)
+   * - Dead Letter Queue: events-dlq for failed events
+   *
+   * @param brands - Array of brand names with event handlers enabled
+   * @param retryAttempts - Number of retry attempts for failed events
+   * @param lambdaFunctions - Optional map of Lambda functions (if not provided, imports from SSM)
+   */
+  private createEventHandlerRules(
+    brands: string[],
+    retryAttempts: number,
+    lambdaFunctions: Map<string, lambda.IFunction> | undefined,
+  ): void {
+    for (const brand of brands) {
+      // Create rule for subscription.tier.changed events
+      // Routes to tier-changed-{brand} Lambda which updates HouseholdEntity.tier
+      this.createEventRule(
+        {
+          name: `tier-changed-${brand}`,
+          source: 'api-core',
+          detailType: 'subscription.tier.changed',
+          detailFilter: { productId: [brand] },
+          targetLambdaName: `tier-changed-${brand}`,
+          retryAttempts,
+        },
+        lambdaFunctions,
+      );
+
+      // Create rule for subscription.upgraded events
+      // Routes to upgrade-handler-{brand} Lambda which handles upgrade-specific logic
+      this.createEventRule(
+        {
+          name: `upgrade-handler-${brand}`,
+          source: 'api-core',
+          detailType: 'subscription.upgraded',
+          detailFilter: { productId: [brand] },
+          targetLambdaName: `upgrade-handler-${brand}`,
+          retryAttempts,
+        },
+        lambdaFunctions,
+      );
+
+      // Create rule for subscription.trial.expired events
+      // Routes to trial-expiry-{brand} Lambda which locks excess bank connections
+      this.createEventRule(
+        {
+          name: `trial-expiry-${brand}`,
+          source: 'api-core',
+          detailType: 'subscription.trial.expired',
+          detailFilter: { productId: [brand] },
+          targetLambdaName: `trial-expiry-${brand}`,
+          retryAttempts,
+        },
+        lambdaFunctions,
+      );
+    }
   }
 }

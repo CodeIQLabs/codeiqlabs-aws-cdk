@@ -137,8 +137,10 @@ export class RootDomainStack extends BaseStack {
     });
 
     // Store zone ID in SSM for workload accounts to reference
+    // Use company from naming config for org-level SSM parameters
+    const company = this.getStackConfig().company.toLowerCase();
     new ssm.StringParameter(this, `${this.sanitizeDomainName(domainName)}ZoneIdParam`, {
-      parameterName: `/codeiqlabs/route53/${domainName}/zone-id`,
+      parameterName: `/${company}/route53/${domainName}/zone-id`,
       stringValue: hostedZone.hostedZoneId,
       description: `Hosted zone ID for ${domainName}`,
       tier: ssm.ParameterTier.STANDARD,
@@ -221,8 +223,10 @@ export class RootDomainStack extends BaseStack {
     });
 
     // Export role ARN to SSM for workload accounts
+    // Use company from naming config for org-level SSM parameters
+    const company = this.getStackConfig().company.toLowerCase();
     new ssm.StringParameter(this, `DelegationRoleArn${index}`, {
-      parameterName: `/codeiqlabs/route53/${domainName}/delegation-role-arn`,
+      parameterName: `/${company}/route53/${domainName}/delegation-role-arn`,
       stringValue: delegationRole.roleArn,
       description: `Delegation role ARN for ${domainName} subdomain delegation`,
       tier: ssm.ParameterTier.STANDARD,

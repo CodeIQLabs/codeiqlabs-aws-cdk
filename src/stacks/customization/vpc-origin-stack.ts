@@ -68,14 +68,16 @@ export class VpcOriginStack extends BaseStack {
     });
 
     // Export via SSM
-    const ssmPrefix = `/codeiqlabs/saas/${stackConfig.environment}`;
+    const vpcOriginIdParam = this.naming.ssmParameterName('vpc-origin', 'id');
+    const vpcOriginArnParam = this.naming.ssmParameterName('vpc-origin', 'arn');
+
     new ssm.StringParameter(this, 'SsmVpcOriginId', {
-      parameterName: `${ssmPrefix}/vpc-origin/id`,
+      parameterName: vpcOriginIdParam,
       stringValue: this.vpcOriginId,
       description: `VPC Origin ID for ${stackConfig.environment} environment`,
     });
     new ssm.StringParameter(this, 'SsmVpcOriginArn', {
-      parameterName: `${ssmPrefix}/vpc-origin/arn`,
+      parameterName: vpcOriginArnParam,
       stringValue: this.vpcOrigin.attrArn,
       description: `VPC Origin ARN for ${stackConfig.environment} environment`,
     });
@@ -86,8 +88,8 @@ export class VpcOriginStack extends BaseStack {
       name: this.naming.resourceName('vpc-origin-ssm-share'),
       principals: [props.managementAccountId],
       resourceArns: [
-        `arn:aws:ssm:${stackConfig.region}:${stackConfig.accountId}:parameter${ssmPrefix}/vpc-origin/id`,
-        `arn:aws:ssm:${stackConfig.region}:${stackConfig.accountId}:parameter${ssmPrefix}/vpc-origin/arn`,
+        `arn:aws:ssm:${stackConfig.region}:${stackConfig.accountId}:parameter${vpcOriginIdParam}`,
+        `arn:aws:ssm:${stackConfig.region}:${stackConfig.accountId}:parameter${vpcOriginArnParam}`,
       ],
       allowExternalPrincipals: false,
     });

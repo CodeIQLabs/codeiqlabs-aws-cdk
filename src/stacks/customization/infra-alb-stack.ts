@@ -121,7 +121,7 @@ export class InfraAlbStack extends BaseStack {
 
       // Export HTTPS listener ARN
       new ssm.StringParameter(this, 'SsmHttpsListenerArn', {
-        parameterName: `/codeiqlabs/saas/${environment}/alb/https-listener-arn`,
+        parameterName: this.naming.ssmParameterName('alb', 'https-listener-arn'),
         stringValue: this.httpsListener.listenerArn,
         description: `HTTPS Listener ARN for ${environment} environment`,
       });
@@ -134,19 +134,18 @@ export class InfraAlbStack extends BaseStack {
     }
 
     // Export via SSM
-    const ssmPrefix = `/codeiqlabs/saas/${environment}`;
     new ssm.StringParameter(this, 'SsmAlbArn', {
-      parameterName: `${ssmPrefix}/alb/arn`,
+      parameterName: this.naming.ssmParameterName('alb', 'arn'),
       stringValue: this.alb.loadBalancerArn,
       description: `ALB ARN for ${environment} environment`,
     });
     new ssm.StringParameter(this, 'SsmAlbDnsName', {
-      parameterName: `${ssmPrefix}/alb/dns-name`,
+      parameterName: this.naming.ssmParameterName('alb', 'dns-name'),
       stringValue: this.alb.loadBalancerDnsName,
       description: `ALB DNS name for ${environment} environment`,
     });
     new ssm.StringParameter(this, 'SsmAlbCanonicalHostedZoneId', {
-      parameterName: `${ssmPrefix}/alb/canonical-hosted-zone-id`,
+      parameterName: this.naming.ssmParameterName('alb', 'canonical-hosted-zone-id'),
       stringValue: this.alb.loadBalancerCanonicalHostedZoneId,
       description: `ALB canonical hosted zone ID for ${environment} environment`,
     });

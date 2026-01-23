@@ -83,9 +83,6 @@ export class ApiGatewayDomainStack extends BaseStack {
       validation: certificatemanager.CertificateValidation.fromDnsMultiZone(hostedZones),
     });
 
-    // SSM prefix for exports
-    const ssmPrefix = `/codeiqlabs/saas/${environment}`;
-
     // Create custom domain for each brand (WITHOUT ApiMapping)
     props.brandDomains.forEach((domain, index) => {
       const apiGwDomainName = `api-gw.${environment}.${domain}`;
@@ -115,7 +112,10 @@ export class ApiGatewayDomainStack extends BaseStack {
       // Export DomainName via SSM for saas-aws to create ApiMapping
       const sanitizedDomain = this.sanitizeDomainName(domain);
       new ssm.StringParameter(this, `SsmDomainName${index}`, {
-        parameterName: `${ssmPrefix}/api-gateway/${sanitizedDomain}/domain-name`,
+        parameterName: this.naming.ssmParameterName(
+          `api-gateway/${sanitizedDomain}`,
+          'domain-name',
+        ),
         stringValue: customDomain.name,
         description: `API Gateway custom domain name for ${domain}`,
       });

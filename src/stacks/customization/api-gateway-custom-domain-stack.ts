@@ -144,15 +144,14 @@ export class ApiGatewayCustomDomainStack extends BaseStack {
     this.regionalHostedZoneId = firstDomain!.regionalHostedZoneId;
 
     // Export regional domain info via SSM for DNS record creation
-    const ssmPrefix = `/codeiqlabs/saas/${environment}`;
     new ssm.StringParameter(this, 'SsmApiGwRegionalDomain', {
-      parameterName: `${ssmPrefix}/api-gateway/regional-domain-name`,
+      parameterName: this.naming.ssmParameterName('api-gateway', 'regional-domain-name'),
       stringValue: this.regionalDomainName,
       description: `API Gateway regional domain name for ${environment}`,
     });
 
     new ssm.StringParameter(this, 'SsmApiGwRegionalHostedZoneId', {
-      parameterName: `${ssmPrefix}/api-gateway/regional-hosted-zone-id`,
+      parameterName: this.naming.ssmParameterName('api-gateway', 'regional-hosted-zone-id'),
       stringValue: this.regionalHostedZoneId,
       description: `API Gateway regional hosted zone ID for ${environment}`,
     });

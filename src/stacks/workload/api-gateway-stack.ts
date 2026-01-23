@@ -120,19 +120,31 @@ export class ApiGatewayStack extends BaseStack {
     const stackConfig = this.getStackConfig();
     const envName = stackConfig.environment;
 
-    // SSM parameter prefix
-    const ssmPrefix = `/codeiqlabs/saas/${envName}`;
-
     // Create HTTP API with CORS
     // Note: allowCredentials is only valid with explicit origins, not '*'
+    // Note: When allowCredentials is true, allowMethods cannot be '*' - must be explicit
     const hasExplicitOrigins = config.corsOrigins && config.corsOrigins.length > 0;
     this.httpApi = new apigatewayv2.HttpApi(this, 'HttpApi', {
       apiName: this.naming.resourceName('api'),
       description: `HTTP API for ${stackConfig.project} ${envName}`,
       corsPreflight: {
         allowOrigins: hasExplicitOrigins ? config.corsOrigins : ['*'],
-        allowMethods: [apigatewayv2.CorsHttpMethod.ANY],
-        allowHeaders: config.corsHeaders ?? ['Authorization', 'Content-Type', 'X-Request-Id'],
+        allowMethods: [
+          apigatewayv2.CorsHttpMethod.GET,
+          apigatewayv2.CorsHttpMethod.POST,
+          apigatewayv2.CorsHttpMethod.PUT,
+          apigatewayv2.CorsHttpMethod.PATCH,
+          apigatewayv2.CorsHttpMethod.DELETE,
+          apigatewayv2.CorsHttpMethod.OPTIONS,
+        ],
+        allowHeaders: config.corsHeaders ?? [
+          'Authorization',
+          'Content-Type',
+          'X-Request-Id',
+          'X-User-Id',
+          'X-User-Email',
+          'X-Product-ID',
+        ],
         allowCredentials: hasExplicitOrigins, // Only enable with explicit origins
         maxAge: cdk.Duration.hours(1),
       },
@@ -151,7 +163,7 @@ export class ApiGatewayStack extends BaseStack {
         // Import Lambda function ARN from SSM
         const lambdaArn = ssm.StringParameter.valueFromLookup(
           this,
-          `${ssmPrefix}/lambda/${route.lambdaName}-arn`,
+          this.naming.ssmParameterName('lambda', `${route.lambdaName}-arn`),
         );
         lambdaFn = lambda.Function.fromFunctionArn(this, `${route.lambdaName}Function`, lambdaArn);
       }

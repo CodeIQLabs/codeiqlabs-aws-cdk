@@ -13,6 +13,8 @@
  * - LambdaFunctionStack: Lambda functions from ECR images with DynamoDB access
  * - ApiGatewayStack: HTTP API Gateway with routes to Lambda functions
  * - EventBridgeStack: EventBridge event bus with routing rules and DLQ
+ * - EventHandlerLambdaStack: Lambda functions for EventBridge event handlers
+ * - ProductSeedStack: Seeds product entities into DynamoDB during deployment
  */
 export * from './ecr-repository-stack';
 export * from './saas-secrets-stack';
@@ -20,3 +22,5 @@ export * from './dynamodb-stack';
 export * from './lambda-function-stack';
 export * from './api-gateway-stack';
 export * from './eventbridge-stack';
+export * from './event-handler-lambda-stack';
+export * from './product-seed-stack';

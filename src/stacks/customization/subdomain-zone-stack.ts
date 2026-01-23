@@ -64,14 +64,22 @@ export class SubdomainZoneStack extends BaseStack {
     const stackConfig = this.getStackConfig();
     const environment = stackConfig.environment;
 
-    // Derive brand domains from saasEdge (exclude codeiqlabs.com - marketing only)
+    // Derive brand domains from saasEdge
+    // Exclude domains that only have 'marketing' distributions (no webapp/api)
+    // These don't need subdomain delegation since they use S3 origins directly
     const saasEdge = (props.config as any).saasEdge as any[] | undefined;
     if (!saasEdge) {
       throw new Error('No saasEdge configuration found in manifest');
     }
 
     const brandDomains = saasEdge
-      .filter((edge) => edge.domain !== 'codeiqlabs.com')
+      .filter((edge) => {
+        // Check if this domain has any non-marketing distributions
+        const distributions = edge.distributions as { type: string }[] | undefined;
+        if (!distributions || distributions.length === 0) return false;
+        // Include domain if it has webapp or api distributions (needs subdomain delegation)
+        return distributions.some((d) => d.type === 'webapp' || d.type === 'api');
+      })
       .map((edge) => edge.domain);
 
     if (brandDomains.length === 0) {

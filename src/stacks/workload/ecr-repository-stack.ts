@@ -38,6 +38,12 @@ export interface EcrRepositoryConfig {
   apiBrands?: string[];
 
   /**
+   * Brands that need event handler ECR repositories
+   * Creates repositories with naming pattern `event-handlers-{brand}`
+   */
+  eventHandlerBrands?: string[];
+
+  /**
    * Image tag mutability setting
    * @default TagMutability.MUTABLE
    */
@@ -85,12 +91,18 @@ export class EcrRepositoryStack extends BaseStack {
    */
   public readonly apiRepositories: Record<string, ecr.IRepository> = {};
 
+  /**
+   * Map of brand name to event handler ECR repository
+   */
+  public readonly eventHandlerRepositories: Record<string, ecr.IRepository> = {};
+
   constructor(scope: Construct, id: string, props: EcrRepositoryStackProps) {
     super(scope, id, 'ECR', props);
 
     const config = props.repositoryConfig;
     const webappBrands = config.webappBrands ?? [];
     const apiBrands = config.apiBrands ?? [];
+    const eventHandlerBrands = config.eventHandlerBrands ?? [];
     const imageTagMutability = config.imageTagMutability ?? ecr.TagMutability.MUTABLE;
     const imageScanOnPush = config.imageScanOnPush ?? true;
     const maxImageCount = config.maxImageCount ?? 10;
@@ -118,6 +130,18 @@ export class EcrRepositoryStack extends BaseStack {
       );
       this.apiRepositories[brand] = repository;
     }
+
+    // Create event handler repositories
+    for (const brand of eventHandlerBrands) {
+      const repository = this.createRepository(
+        brand,
+        'event-handlers',
+        imageTagMutability,
+        imageScanOnPush,
+        maxImageCount,
+      );
+      this.eventHandlerRepositories[brand] = repository;
+    }
   }
 
   /**
@@ -125,14 +149,19 @@ export class EcrRepositoryStack extends BaseStack {
    */
   private createRepository(
     brand: string,
-    serviceType: 'webapp' | 'api',
+    serviceType: 'webapp' | 'api' | 'event-handlers',
     imageTagMutability: ecr.TagMutability,
     imageScanOnPush: boolean,
     maxImageCount: number,
   ): ecr.Repository {
     const serviceName = `${brand}-${serviceType}`;
     const repositoryName = this.naming.resourceName(serviceName);
-    const constructId = `${brand}${serviceType.charAt(0).toUpperCase() + serviceType.slice(1)}Repository`;
+    // Convert service type to PascalCase for construct ID (e.g., 'event-handlers' -> 'EventHandlers')
+    const serviceTypePascal = serviceType
+      .split('-')
+      .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+      .join('');
+    const constructId = `${brand}${serviceTypePascal}Repository`;
 
     const repository = new ecr.Repository(this, constructId, {
       repositoryName,

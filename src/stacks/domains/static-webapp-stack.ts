@@ -53,8 +53,8 @@ export interface BrandBucketConfig {
 
   /**
    * Bucket type - determines naming prefix and SSM parameter path
-   * - marketing: static-{brand}, /codeiqlabs/saas/{env}/static/{brand}/bucket-name
-   * - webapp: webapp-{brand}, /codeiqlabs/saas/{env}/webapp/{brand}/bucket-name
+   * - marketing: static-{brand}, /{company}/{project}/{env}/static/{brand}/bucket-name
+   * - webapp: webapp-{brand}, /{company}/{project}/{env}/webapp/{brand}/bucket-name
    */
   type: StaticBucketType;
 }
@@ -77,7 +77,7 @@ export interface StaticSiteConfig {
 
   /**
    * Management account ID for CloudFront OAC access
-   * If not provided, will be looked up from SSM: /codeiqlabs/org/management-account-id
+   * If not provided, will be looked up from SSM: /{company}/org/management-account-id
    * @optional
    */
   managementAccountId?: string;
@@ -127,11 +127,13 @@ export class StaticWebAppStack extends BaseStack {
 
     const config = props.siteConfig;
     const enableVersioning = config.enableVersioning ?? true;
+    const stackConfig = this.getStackConfig();
+    const company = stackConfig.company.toLowerCase();
 
     // Get management account ID from config or SSM parameter
     const managementAccountId =
       config.managementAccountId ||
-      ssm.StringParameter.valueFromLookup(this, '/codeiqlabs/org/management-account-id');
+      ssm.StringParameter.valueFromLookup(this, `/${company}/org/management-account-id`);
 
     // Build unified bucket list from both legacy brands and new brandBuckets
     // Legacy brands array creates marketing buckets for backward compatibility
@@ -145,8 +147,8 @@ export class StaticWebAppStack extends BaseStack {
       const { brand, type } = bucketConfig;
 
       // Determine bucket prefix and SSM path based on type
-      // marketing: static-{brand}, /codeiqlabs/saas/{env}/static/{brand}/bucket-name
-      // webapp: webapp-{brand}, /codeiqlabs/saas/{env}/webapp/{brand}/bucket-name
+      // marketing: static-{brand}, /{company}/{project}/{env}/static/{brand}/bucket-name
+      // webapp: webapp-{brand}, /{company}/{project}/{env}/webapp/{brand}/bucket-name
       const bucketPrefix = type === 'marketing' ? 'static' : 'webapp';
       const ssmPathPrefix = type === 'marketing' ? 'static' : 'webapp';
 
