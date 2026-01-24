@@ -199,6 +199,21 @@ export class EventHandlerLambdaStack extends BaseStack {
         timeout,
         imageTag,
       );
+
+      // Create auto-matcher handler (Savvue-specific)
+      // Handles transaction.categorized events to create suggestions for similar transactions
+      if (brand === 'savvue') {
+        this.createEventHandler(
+          `auto-matcher-handler-${brand}`,
+          brand,
+          ecrRepository,
+          executionRole,
+          environment,
+          memorySize,
+          timeout,
+          imageTag,
+        );
+      }
     }
   }
 

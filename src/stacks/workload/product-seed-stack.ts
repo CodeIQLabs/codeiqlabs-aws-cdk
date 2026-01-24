@@ -69,6 +69,9 @@ export class ProductSeedStack extends BaseStack {
     });
 
     // Create custom resource that triggers seeding
+    // The custom resource runs on CREATE and UPDATE (when properties change)
+    // ProductsHash changes when products are added/removed
+    // SeedVersion can be manually incremented to force re-seeding if products were deleted
     new CustomResource(this, 'ProductSeed', {
       serviceToken: seedProvider.serviceToken,
       properties: {
@@ -76,6 +79,8 @@ export class ProductSeedStack extends BaseStack {
         TableName: coreTable.tableName,
         // Force update when products change
         ProductsHash: JSON.stringify(products.map((p) => p.id).sort()),
+        // Increment this version to force re-seeding (e.g., if products were manually deleted)
+        SeedVersion: '2',
       },
     });
   }

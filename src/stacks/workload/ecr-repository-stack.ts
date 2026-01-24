@@ -39,9 +39,15 @@ export interface EcrRepositoryConfig {
 
   /**
    * Brands that need event handler ECR repositories
-   * Creates repositories with naming pattern `event-handlers-{brand}`
+   * Creates repositories with naming pattern `{brand}-event-handlers`
    */
   eventHandlerBrands?: string[];
+
+  /**
+   * Brands that need scheduled job ECR repositories
+   * Creates repositories with naming pattern `{brand}-jobs`
+   */
+  scheduledJobBrands?: string[];
 
   /**
    * Image tag mutability setting
@@ -96,6 +102,11 @@ export class EcrRepositoryStack extends BaseStack {
    */
   public readonly eventHandlerRepositories: Record<string, ecr.IRepository> = {};
 
+  /**
+   * Map of brand name to scheduled job ECR repository
+   */
+  public readonly scheduledJobRepositories: Record<string, ecr.IRepository> = {};
+
   constructor(scope: Construct, id: string, props: EcrRepositoryStackProps) {
     super(scope, id, 'ECR', props);
 
@@ -103,6 +114,7 @@ export class EcrRepositoryStack extends BaseStack {
     const webappBrands = config.webappBrands ?? [];
     const apiBrands = config.apiBrands ?? [];
     const eventHandlerBrands = config.eventHandlerBrands ?? [];
+    const scheduledJobBrands = config.scheduledJobBrands ?? [];
     const imageTagMutability = config.imageTagMutability ?? ecr.TagMutability.MUTABLE;
     const imageScanOnPush = config.imageScanOnPush ?? true;
     const maxImageCount = config.maxImageCount ?? 10;
@@ -142,6 +154,18 @@ export class EcrRepositoryStack extends BaseStack {
       );
       this.eventHandlerRepositories[brand] = repository;
     }
+
+    // Create scheduled job repositories
+    for (const brand of scheduledJobBrands) {
+      const repository = this.createRepository(
+        brand,
+        'jobs',
+        imageTagMutability,
+        imageScanOnPush,
+        maxImageCount,
+      );
+      this.scheduledJobRepositories[brand] = repository;
+    }
   }
 
   /**
@@ -149,7 +173,7 @@ export class EcrRepositoryStack extends BaseStack {
    */
   private createRepository(
     brand: string,
-    serviceType: 'webapp' | 'api' | 'event-handlers',
+    serviceType: 'webapp' | 'api' | 'event-handlers' | 'jobs',
     imageTagMutability: ecr.TagMutability,
     imageScanOnPush: boolean,
     maxImageCount: number,

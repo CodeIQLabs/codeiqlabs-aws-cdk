@@ -78,6 +78,8 @@ import {
   EventBridgeStack,
   ProductSeedStack,
   EventHandlerLambdaStack,
+  ScheduledJobLambdaStack,
+  RefreshTokenCleanupStack,
 } from '../../stacks/workload';
 import {
   RootDomainStack,
@@ -585,6 +587,13 @@ export class ComponentOrchestrator implements BaseOrchestrator {
             .filter((app: any) => app.eventHandlers === true)
             .map((app: any) => app.name);
 
+          // Brands with scheduledJobs array (scheduled background job Lambda functions)
+          // Creates: Lambda functions with EventBridge scheduled rules
+          // Jobs: auto-matcher, unlock-checker, rollover, etc.
+          const scheduledJobBrands = saasWorkload
+            .filter((app: any) => app.scheduledJobs && app.scheduledJobs.length > 0)
+            .map((app: any) => app.name);
+
           // Brands with any non-marketing services (for DynamoDB/Secrets creation)
           const nonMarketingBrands = saasWorkload
             .filter((app: any) => app.lambdaApi === true)
@@ -696,6 +705,32 @@ export class ComponentOrchestrator implements BaseOrchestrator {
                   );
                   productSeedStack.addDependency(dynamodbStack);
                 }
+
+                // 2c. Refresh Token Cleanup Stack (scheduled cleanup of expired tokens)
+                // Creates Lambda function + EventBridge rule for daily cleanup at 2 AM EST
+                // Only created if refreshTokenCleanup: true is set on any brand
+                const cleanupBrands = saasWorkload.filter((app) => app.refreshTokenCleanup);
+                if (cleanupBrands.length > 0 && coreTable) {
+                  try {
+                    const cleanupStack = new RefreshTokenCleanupStack(
+                      app,
+                      envNaming.stackName('RefreshTokenCleanup'),
+                      {
+                        stackConfig,
+                        tableName: coreTable.tableName,
+                        tableArn: coreTable.tableArn,
+                        env: envEnv,
+                      },
+                    );
+                    cleanupStack.addDependency(dynamodbStack);
+                  } catch (error) {
+                    throw new OrchestrationError(
+                      `Failed to create Refresh Token Cleanup stack for environment ${envName}`,
+                      'saasWorkload',
+                      error instanceof Error ? error : new Error(String(error)),
+                    );
+                  }
+                }
               }
             } catch (error) {
               throw new OrchestrationError(
@@ -708,9 +743,13 @@ export class ComponentOrchestrator implements BaseOrchestrator {
 
           // 3. ECR Repository Stack (for Lambda container images)
           // Lambda functions use Docker images from ECR
-          // Also creates repositories for event handlers if eventHandlerBrands is set
+          // Also creates repositories for event handlers and scheduled jobs
           let ecrStack: EcrRepositoryStack | undefined;
-          if (lambdaApiBrands.length > 0 || eventHandlerBrands.length > 0) {
+          if (
+            lambdaApiBrands.length > 0 ||
+            eventHandlerBrands.length > 0 ||
+            scheduledJobBrands.length > 0
+          ) {
             try {
               ecrStack = new EcrRepositoryStack(app, envNaming.stackName('ECR'), {
                 stackConfig,
@@ -719,6 +758,8 @@ export class ComponentOrchestrator implements BaseOrchestrator {
                   apiBrands: lambdaApiBrands,
                   eventHandlerBrands:
                     eventHandlerBrands.length > 0 ? eventHandlerBrands : undefined,
+                  scheduledJobBrands:
+                    scheduledJobBrands.length > 0 ? scheduledJobBrands : undefined,
                 },
                 env: envEnv,
               });
@@ -958,6 +999,70 @@ export class ComponentOrchestrator implements BaseOrchestrator {
                     'saasWorkload',
                     error instanceof Error ? error : new Error(String(error)),
                   );
+                }
+
+                // 7e. Scheduled Job Lambda Stack (for background jobs)
+                // Creates Lambda functions with EventBridge scheduled rules
+                // Jobs: auto-matcher, unlock-checker, rollover, etc.
+                // Depends on: DynamoDB (for table access), ECR (for container images)
+                if (scheduledJobBrands.length > 0 && dynamodbStack && ecrStack) {
+                  // Resolve EventBridge bus name with environment placeholder
+                  const eventBridgeBusNameForJobs = lambdaDefaults?.eventBridgeBusName
+                    ? (lambdaDefaults.eventBridgeBusName as string).replace('{env}', envName)
+                    : undefined;
+
+                  // Get core table for cross-brand data access (e.g., subscriptions)
+                  const coreTable = dynamodbStack.tables.get('core');
+
+                  // Create ScheduledJobLambdaStack for each brand with scheduledJobs
+                  for (const brand of scheduledJobBrands) {
+                    try {
+                      // Get the brand's scheduled jobs configuration
+                      const brandConfig = saasWorkload.find((app: any) => app.name === brand);
+                      const jobConfigs = brandConfig?.scheduledJobs || [];
+
+                      if (jobConfigs.length === 0) continue;
+
+                      // Get brand's DynamoDB table
+                      const brandTable = dynamodbStack.tables.get(brand);
+                      if (!brandTable) {
+                        throw new Error(`DynamoDB table for brand '${brand}' not found`);
+                      }
+
+                      const scheduledJobStack = new ScheduledJobLambdaStack(
+                        app,
+                        envNaming.stackName(
+                          `ScheduledJobs-${brand.charAt(0).toUpperCase() + brand.slice(1)}`,
+                        ),
+                        {
+                          stackConfig,
+                          brand,
+                          jobs: jobConfigs.map((job: any) => ({
+                            name: job.name,
+                            description: job.description,
+                            schedule: job.schedule,
+                            memorySize: job.memorySize ?? lambdaDefaults?.memorySize ?? 1024,
+                            timeout: job.timeout ?? 300, // Default 5 minutes for background jobs
+                            enabled: job.enabled !== false,
+                          })),
+                          dynamodbTable: brandTable,
+                          coreTable,
+                          eventBridgeBusName: eventBridgeBusNameForJobs,
+                          env: envEnv,
+                        },
+                      );
+
+                      // Set up stack dependencies
+                      scheduledJobStack.addDependency(dynamodbStack);
+                      scheduledJobStack.addDependency(ecrStack);
+                    } catch (error) {
+                      throw new OrchestrationError(
+                        `Failed to create Scheduled Job Lambda stack for brand ${brand} in environment ${envName}`,
+                        'saasWorkload',
+                        error instanceof Error ? error : new Error(String(error)),
+                      );
+                    }
+                  }
                 }
               } catch (error) {
                 throw new OrchestrationError(

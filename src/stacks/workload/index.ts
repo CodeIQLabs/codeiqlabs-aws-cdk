@@ -14,7 +14,9 @@
  * - ApiGatewayStack: HTTP API Gateway with routes to Lambda functions
  * - EventBridgeStack: EventBridge event bus with routing rules and DLQ
  * - EventHandlerLambdaStack: Lambda functions for EventBridge event handlers
+ * - ScheduledJobLambdaStack: Lambda functions with EventBridge scheduled rules
  * - ProductSeedStack: Seeds product entities into DynamoDB during deployment
+ * - RefreshTokenCleanupStack: Scheduled cleanup of expired refresh tokens
  */
 export * from './ecr-repository-stack';
 export * from './saas-secrets-stack';
@@ -23,4 +25,6 @@ export * from './lambda-function-stack';
 export * from './api-gateway-stack';
 export * from './eventbridge-stack';
 export * from './event-handler-lambda-stack';
+export * from './scheduled-job-lambda-stack';
 export * from './product-seed-stack';
+export * from './refresh-token-cleanup-stack';

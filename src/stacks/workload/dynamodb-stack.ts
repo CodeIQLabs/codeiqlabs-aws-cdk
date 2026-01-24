@@ -80,6 +80,14 @@ export class DynamoDBStack extends BaseStack {
         projectionType: dynamodb.ProjectionType.ALL,
       });
 
+      // GSI4 for inbox segment queries (e.g., transactions by inboxSegment)
+      table.addGlobalSecondaryIndex({
+        indexName: 'GSI4',
+        partitionKey: { name: 'GSI4PK', type: dynamodb.AttributeType.STRING },
+        sortKey: { name: 'GSI4SK', type: dynamodb.AttributeType.STRING },
+        projectionType: dynamodb.ProjectionType.ALL,
+      });
+
       this.tables.set(tableName, table);
 
       // Export table name to SSM

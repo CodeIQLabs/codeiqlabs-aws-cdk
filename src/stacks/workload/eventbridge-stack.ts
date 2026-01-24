@@ -347,6 +347,22 @@ export class EventBridgeStack extends BaseStack {
         },
         lambdaFunctions,
       );
+
+      // Savvue-specific: Create rule for transaction.categorized events
+      // Routes to auto-matcher-handler-savvue Lambda which creates suggestions for similar transactions
+      if (brand === 'savvue') {
+        this.createEventRule(
+          {
+            name: `auto-matcher-handler-${brand}`,
+            source: 'api-savvue',
+            detailType: 'transaction.categorized',
+            detailFilter: { productId: [brand] },
+            targetLambdaName: `auto-matcher-handler-${brand}`,
+            retryAttempts,
+          },
+          lambdaFunctions,
+        );
+      }
     }
   }
 }
