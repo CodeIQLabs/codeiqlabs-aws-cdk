@@ -6,14 +6,15 @@
  * Architecture:
  * - Event bus: saas-{env}-events
  * - Dead Letter Queue for failed events
- * - Rules for subscription events (trial expired, upgraded, downgraded)
+ * - Rules for transaction events
  * - Lambda targets with retry logic
  *
  * Event Handler Rules:
- * When `eventHandlerBrands` is provided, creates rules for each brand:
- * - subscription.tier.changed (productId={brand}) → tier-changed-{brand} Lambda
- * - subscription.upgraded (productId={brand}) → upgrade-handler-{brand} Lambda
- * - subscription.trial.expired (productId={brand}) → trial-expiry-{brand} Lambda
+ * When `eventHandlerBrands` is provided, creates rules for savvue only:
+ * - transaction.categorized (productId=savvue) → auto-matcher-handler-savvue Lambda
+ *
+ * Note: subscription.upgraded, subscription.trial.expired, and subscription.tier.changed
+ * rules were removed - tier is now read from JWT only.
  *
  * @example
  * ```typescript
@@ -111,10 +112,11 @@ export interface EventBridgeConfig {
 
   /**
    * Brands that have event handlers enabled.
-   * For each brand, creates EventBridge rules for:
-   * - subscription.tier.changed (productId={brand}) → tier-changed-{brand} Lambda
-   * - subscription.upgraded (productId={brand}) → upgrade-handler-{brand} Lambda
-   * - subscription.trial.expired (productId={brand}) → trial-expiry-{brand} Lambda
+   * Currently only savvue has event handlers:
+   * - transaction.categorized (productId=savvue) → auto-matcher-handler-savvue Lambda
+   *
+   * Note: subscription.upgraded, subscription.trial.expired, and subscription.tier.changed
+   * rules were removed - tier is now read from JWT only.
    *
    * Rules are configured with:
    * - 3 retry attempts with exponential backoff
@@ -174,7 +176,7 @@ export class EventBridgeStack extends BaseStack {
     }
 
     // Create event handler rules for each brand with eventHandlers enabled
-    // This creates rules for subscription.tier.changed and subscription.upgraded events
+    // This creates rules for subscription.upgraded and subscription.trial.expired events
     // filtered by productId to route to brand-specific Lambda handlers
     if (config.eventHandlerBrands && config.eventHandlerBrands.length > 0) {
       const retryAttempts = config.eventHandlerRetryAttempts ?? 3;
@@ -283,15 +285,16 @@ export class EventBridgeStack extends BaseStack {
   }
 
   /**
-   * Create EventBridge rules for event handlers for each brand.
+   * Create EventBridge rules for event handlers.
    *
-   * For each brand, creates three rules:
-   * 1. subscription.tier.changed (productId={brand}) → tier-changed-{brand} Lambda
-   * 2. subscription.upgraded (productId={brand}) → upgrade-handler-{brand} Lambda
-   * 3. subscription.trial.expired (productId={brand}) → trial-expiry-{brand} Lambda
+   * Currently only creates rules for savvue:
+   * - transaction.categorized (productId=savvue) → auto-matcher-handler-savvue Lambda
+   *
+   * Note: subscription.upgraded, subscription.trial.expired, and subscription.tier.changed
+   * rules were removed - tier is now read from JWT only.
    *
    * Rules are configured with:
-   * - Source: 'api-core' (the shared service that publishes subscription events)
+   * - Source: 'api-savvue' (the service that publishes transaction events)
    * - Detail filter: productId matches the brand name
    * - Retry attempts: configurable (default 3)
    * - Dead Letter Queue: events-dlq for failed events
@@ -306,50 +309,9 @@ export class EventBridgeStack extends BaseStack {
     lambdaFunctions: Map<string, lambda.IFunction> | undefined,
   ): void {
     for (const brand of brands) {
-      // Create rule for subscription.tier.changed events
-      // Routes to tier-changed-{brand} Lambda which updates HouseholdEntity.tier
-      this.createEventRule(
-        {
-          name: `tier-changed-${brand}`,
-          source: 'api-core',
-          detailType: 'subscription.tier.changed',
-          detailFilter: { productId: [brand] },
-          targetLambdaName: `tier-changed-${brand}`,
-          retryAttempts,
-        },
-        lambdaFunctions,
-      );
-
-      // Create rule for subscription.upgraded events
-      // Routes to upgrade-handler-{brand} Lambda which handles upgrade-specific logic
-      this.createEventRule(
-        {
-          name: `upgrade-handler-${brand}`,
-          source: 'api-core',
-          detailType: 'subscription.upgraded',
-          detailFilter: { productId: [brand] },
-          targetLambdaName: `upgrade-handler-${brand}`,
-          retryAttempts,
-        },
-        lambdaFunctions,
-      );
-
-      // Create rule for subscription.trial.expired events
-      // Routes to trial-expiry-{brand} Lambda which locks excess bank connections
-      this.createEventRule(
-        {
-          name: `trial-expiry-${brand}`,
-          source: 'api-core',
-          detailType: 'subscription.trial.expired',
-          detailFilter: { productId: [brand] },
-          targetLambdaName: `trial-expiry-${brand}`,
-          retryAttempts,
-        },
-        lambdaFunctions,
-      );
-
       // Savvue-specific: Create rule for transaction.categorized events
       // Routes to auto-matcher-handler-savvue Lambda which creates suggestions for similar transactions
+      // Note: subscription.upgraded and subscription.trial.expired rules were removed
       if (brand === 'savvue') {
         this.createEventRule(
           {

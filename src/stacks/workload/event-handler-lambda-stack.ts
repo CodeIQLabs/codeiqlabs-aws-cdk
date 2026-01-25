@@ -9,10 +9,11 @@
  * - IAM roles grant read/write access to brand's DynamoDB table
  * - SSM parameters for EventBridge rule integration
  *
- * Event Handlers per brand:
- * - tier-changed-{brand}: Handles subscription.tier.changed events
- * - upgrade-handler-{brand}: Handles subscription.upgraded events
- * - trial-expiry-{brand}: Handles subscription.trial.expired events
+ * Event Handlers:
+ * - auto-matcher-handler-savvue: Handles transaction.categorized events (Savvue only)
+ *
+ * Note: upgrade-handler, trial-expiry, and tier-changed handlers were removed.
+ * Tier is now read from JWT only - webapp refreshes token after subscription changes.
  *
  * @example
  * ```typescript
@@ -106,15 +107,16 @@ export interface EventHandlerLambdaStackProps extends BaseStackProps {
  * - CloudWatch Logs permissions
  * - SSM parameters for EventBridge rule integration
  *
- * Creates three Lambda functions per brand:
- * - tier-changed-{brand}: Handles subscription.tier.changed events
- * - upgrade-handler-{brand}: Handles subscription.upgraded events
- * - trial-expiry-{brand}: Handles subscription.trial.expired events
+ * Currently only creates:
+ * - auto-matcher-handler-savvue: Handles transaction.categorized events
+ *
+ * Note: upgrade-handler, trial-expiry, and tier-changed handlers were removed.
+ * Tier is now read from JWT only - webapp refreshes token after subscription changes.
  */
 export class EventHandlerLambdaStack extends BaseStack {
   /**
    * Map of handler name to Lambda function
-   * Keys: 'tier-changed-{brand}', 'upgrade-handler-{brand}'
+   * Keys: 'upgrade-handler-{brand}', 'trial-expiry-{brand}', etc.
    */
   public readonly functions: Map<string, lambda.Function> = new Map();
 
@@ -164,44 +166,9 @@ export class EventHandlerLambdaStack extends BaseStack {
         environment.EVENTBRIDGE_BUS_NAME = eventBridgeBusName;
       }
 
-      // Create tier-changed handler
-      this.createEventHandler(
-        `tier-changed-${brand}`,
-        brand,
-        ecrRepository,
-        executionRole,
-        environment,
-        memorySize,
-        timeout,
-        imageTag,
-      );
-
-      // Create upgrade-handler
-      this.createEventHandler(
-        `upgrade-handler-${brand}`,
-        brand,
-        ecrRepository,
-        executionRole,
-        environment,
-        memorySize,
-        timeout,
-        imageTag,
-      );
-
-      // Create trial-expiry handler
-      this.createEventHandler(
-        `trial-expiry-${brand}`,
-        brand,
-        ecrRepository,
-        executionRole,
-        environment,
-        memorySize,
-        timeout,
-        imageTag,
-      );
-
-      // Create auto-matcher handler (Savvue-specific)
+      // Create auto-matcher handler (Savvue-specific only)
       // Handles transaction.categorized events to create suggestions for similar transactions
+      // Note: upgrade-handler and trial-expiry were removed - tier is read from JWT only
       if (brand === 'savvue') {
         this.createEventHandler(
           `auto-matcher-handler-${brand}`,

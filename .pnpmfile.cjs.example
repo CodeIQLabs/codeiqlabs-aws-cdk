@@ -1,0 +1,25 @@
+/**
+ * Local pnpm overrides for development
+ *
+ * Copy this file to .pnpmfile.cjs (which is gitignored) to use local packages
+ * instead of published versions during development.
+ *
+ * Usage:
+ *   cp .pnpmfile.cjs.example .pnpmfile.cjs
+ *   pnpm install
+ */
+module.exports = {
+  hooks: {
+    readPackage(pkg) {
+      // Override @codeiqlabs/aws-utils with local version
+      if (pkg.dependencies?.['@codeiqlabs/aws-utils']) {
+        pkg.dependencies['@codeiqlabs/aws-utils'] = 'file:../codeiqlabs-aws-utils';
+      }
+      // Override @codeiqlabs/eslint-prettier-config with local version
+      if (pkg.devDependencies?.['@codeiqlabs/eslint-prettier-config']) {
+        pkg.devDependencies['@codeiqlabs/eslint-prettier-config'] = 'file:../codeiqlabs-eslint-prettier-config';
+      }
+      return pkg;
+    }
+  }
+};

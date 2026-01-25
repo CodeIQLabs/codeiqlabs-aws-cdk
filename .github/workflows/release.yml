@@ -7,7 +7,6 @@ on:
 permissions:
   contents: write
   packages: write
-  pull-requests: write
 
 jobs:
   release:
@@ -15,12 +14,13 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-      - name: Setup Node (GitHub Packages)
+      - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: "npm"
           registry-url: "https://npm.pkg.github.com"
           scope: "@codeiqlabs"
 
@@ -31,40 +31,53 @@ jobs:
           run_install: false
 
       - name: Install dependencies
-        run: rm -f package-lock.json && npm install
+        run: pnpm install --no-frozen-lockfile
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GH_TOKEN }}
 
       - name: Build package
-        run: npm run build
-
-        # Safety: re-run the same gates on main before publishing
-      - name: Prettier check
-        run: npm run format:check
+        run: pnpm run build
 
       - name: Run tests
-        run: npm run test:all
+        run: pnpm run test:all
 
-      # Will either:
-      #  - open/refresh a "Version Packages" PR when there are pending changesets, or
-      #  - publish after that PR is merged (creating a Git tag + GitHub Release).
-      - name: Create release PR or publish
-        id: changesets
-        uses: changesets/action@v1
-        with:
-          publish: npm run release
-          title: "Version Packages"
-          commit: "Version Packages"
-        env:
-          GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
-          NODE_AUTH_TOKEN: ${{ secrets.GH_TOKEN }} # needed for GH Packages (npm)
+      - name: Get package version
+        id: pkg
+        run: echo "version=$(node -p "require('./package.json').version")" >> $GITHUB_OUTPUT
 
-      - name: Push tags
-        if: steps.changesets.outputs.published == 'true'
-        run: git push --follow-tags
-
-      - name: Send release notification
-        if: steps.changesets.outputs.published == 'true'
+      - name: Check if tag exists
+        id: tag_check
         run: |
-          echo "🚀 Package published successfully!"
-          echo "Published packages: ${{ steps.changesets.outputs.publishedPackages }}"
+          if git rev-parse "v${{ steps.pkg.outputs.version }}" >/dev/null 2>&1; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Create Git tag
+        if: steps.tag_check.outputs.exists == 'false'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag -a "v${{ steps.pkg.outputs.version }}" -m "Release v${{ steps.pkg.outputs.version }}"
+          git push origin "v${{ steps.pkg.outputs.version }}"
+
+      - name: Create GitHub Release
+        if: steps.tag_check.outputs.exists == 'false'
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: v${{ steps.pkg.outputs.version }}
+          name: v${{ steps.pkg.outputs.version }}
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publish to GitHub Packages
+        if: steps.tag_check.outputs.exists == 'false'
+        run: pnpm publish --no-git-checks
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Skip release (version already published)
+        if: steps.tag_check.outputs.exists == 'true'
+        run: echo "Version v${{ steps.pkg.outputs.version }} already exists, skipping release"

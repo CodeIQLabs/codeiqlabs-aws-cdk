@@ -1,1 +1,8 @@
+# Prevent committing file: references to package.json
+if grep -q '"file:\.\./' package.json 2>/dev/null; then
+  echo "ERROR: Found 'file:../' reference in package.json"
+  echo "Use published versions for commits. Local overrides should be in .pnpmfile.cjs (gitignored)"
+  exit 1
+fi
+
 npx lint-staged

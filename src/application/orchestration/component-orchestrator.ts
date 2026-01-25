@@ -581,8 +581,10 @@ export class ComponentOrchestrator implements BaseOrchestrator {
             .map((app: any) => app.name);
 
           // Brands with eventHandlers: true (EventBridge event handler Lambda functions)
-          // Creates: tier-changed-{brand}, upgrade-handler-{brand}, trial-expiry-{brand} Lambdas
-          // Creates: EventBridge rules filtered by productId
+          // Currently only savvue has event handlers: auto-matcher-handler-savvue
+          // Creates: EventBridge rules filtered by productId for transaction.categorized
+          // Note: upgrade-handler, trial-expiry, and tier-changed handlers were removed
+          // Tier is now read from JWT only - webapp refreshes token after subscription changes
           const eventHandlerBrands = saasWorkload
             .filter((app: any) => app.eventHandlers === true)
             .map((app: any) => app.name);
@@ -908,10 +910,9 @@ export class ComponentOrchestrator implements BaseOrchestrator {
                 // 7c. Event Handler Lambda Stack (for EventBridge event handlers)
                 // MUST be created BEFORE EventBridge stack so Lambda functions exist
                 // when EventBridge rules are created with Lambda targets
-                // Creates Lambda functions for subscription event handling:
-                // - tier-changed-{brand}: Handles subscription.tier.changed events
-                // - upgrade-handler-{brand}: Handles subscription.upgraded events
-                // - trial-expiry-{brand}: Handles subscription.trial.expired events
+                // Currently only creates: auto-matcher-handler-savvue for transaction matching
+                // Note: upgrade-handler, trial-expiry, and tier-changed handlers were removed
+                // Tier is now read from JWT only - webapp refreshes token after subscription changes
                 // Depends on: DynamoDB (for table access), ECR (for container images)
                 let eventHandlerStack: EventHandlerLambdaStack | undefined;
                 let eventHandlerFunctions: Map<string, lambda.Function> | undefined;
