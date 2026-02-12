@@ -1,32 +1,22 @@
 /**
- * CDK Stack Classes for CodeIQLabs projects
+ * CDK Shared Stack Classes for CodeIQLabs projects
  *
- * This module provides reusable stack classes that eliminate repetitive code
- * and ensure consistent patterns across different types of AWS infrastructure.
+ * This module provides shared, pattern-agnostic stack classes.
+ * These stacks would be the same regardless of deployment architecture.
  *
- * All stacks follow these principles:
- * - Configuration comes from manifest files (no hardcoded values)
- * - Fail-fast validation with clear error messages
- * - Standardized naming using ResourceNaming
- * - Automatic application of standard tags
- * - Type-safe configuration interfaces
- *
- * Stacks are organized by component/domain:
+ * Shared stacks:
  * - Base: Foundation classes for extending
  * - Organizations: AWS Organizations infrastructure
  * - Identity Center: AWS SSO infrastructure
- * - Domains: Domain management and delegation
- * - Workload: VPC, ECS, ALB, S3 for workload accounts
+ * - Customization: GitHub OIDC for CI/CD authentication
+ *
+ * Pattern-specific stacks (edge, workload) are in src/patterns/
  */
 
 // Base stack classes
 export * from './base';
 
-// Component-based stack implementations
+// Shared component stack implementations
 export * from './organizations';
 export * from './identity-center';
-export * from './domains';
 export * from './customization';
-
-// Workload infrastructure stacks
-export * from './workload';

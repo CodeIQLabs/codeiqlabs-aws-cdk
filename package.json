@@ -1,6 +1,6 @@
 {
   "name": "@codeiqlabs/aws-cdk",
-  "version": "1.6.0",
+  "version": "1.7.0",
   "description": "Component-based AWS CDK framework for manifest-driven infrastructure orchestration",
   "type": "module",
   "main": "./dist/index.cjs",
@@ -34,7 +34,7 @@
     "lint:fix": "npx eslint . --fix",
     "format": "prettier . --write",
     "format:check": "prettier . --check",
-        "clean": "rimraf dist",
+    "clean": "rimraf dist",
     "build": "npm run clean && npm run build:bundle && npm run format && npm run lint",
     "build:bundle": "tsup src/index.ts --format esm,cjs --dts --sourcemap --clean",
     "test:load": "node tests/load-config.test.cjs",

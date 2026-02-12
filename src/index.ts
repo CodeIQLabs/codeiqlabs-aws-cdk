@@ -25,11 +25,11 @@ export * from './application';
 // Unified factory function
 export { createApp } from './application/factories';
 
-// Layer 2: Stack Layer (Infrastructure grouping)
+// Layer 2: Stack Layer (Shared infrastructure stacks)
 export * from './stacks';
+
+// Layer 3: Patterns Layer (Architecture-specific compositions)
+export * from './patterns';
 
 // Layer 4: Construct Layer (Individual AWS service constructs)
 export * from './constructs';
-
-// Layer 3: Stage Layer (Deployment stages)
-export * from './stages';

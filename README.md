@@ -1,3 +1,8 @@
+---
+inclusion: fileMatch
+fileMatchPattern: 'src/**/*'
+---
+
 # @codeiqlabs/aws-cdk
 
 **Component-based AWS CDK framework that auto-orchestrates Organizations, Identity Center, and
@@ -295,10 +300,6 @@ npm run test:esm
 - **Stability:** Production-ready
 
 **Release Notes:** See [CHANGELOG.md](./CHANGELOG.md)
-
-## Contributing
-
-We welcome contributions! Please see [CONTRIBUTING.md](./CONTRIBUTING.md) for guidelines.
 
 ## License
 
