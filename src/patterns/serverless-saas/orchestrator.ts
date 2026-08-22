@@ -26,6 +26,7 @@ import {
   CloudFrontVpcOriginStack,
   DnsRecordsStack,
   StaticWebAppStack,
+  SesEmailForwardingStack,
 } from './stacks/edge';
 
 // Workload stacks
@@ -36,7 +37,6 @@ import {
   LambdaFunctionStack,
   ApiGatewayStack,
   EventBridgeStack,
-  ProductSeedStack,
   EventHandlerLambdaStack,
   ScheduledJobLambdaStack,
   TrialExpiryStack,
@@ -341,6 +341,32 @@ export class ServerlessSaasOrchestrator {
         });
         dnsRecordsStack.addDependency(cloudFrontStack);
       }
+
+      // 5. SES Email Forwarding Stack — for domains with email forwarding config
+      if (registeredDomains) {
+        const emailDomains = registeredDomains.filter((d: any) => d.email?.forwarding?.length > 0);
+        if (emailDomains.length > 0) {
+          const sesNaming = new ResourceNaming({
+            company,
+            project,
+            environment: 'mgmt',
+            region: 'us-east-1',
+            accountId: deploymentAccountId,
+          });
+
+          const sesEmailStack = new SesEmailForwardingStack(app, sesNaming.stackName('SesEmail'), {
+            stackConfig: { ...mgmtStackConfig, region: 'us-east-1' },
+            emailDomains: emailDomains.map((domain: any) => ({
+              domainName: domain.name,
+              hostedZoneId: domain.hostedZoneId,
+              forwardingRules: domain.email.forwarding,
+              additionalApexTxtValues: domain.email.additionalApexTxtValues,
+            })),
+            env: usEast1Env,
+          });
+          sesEmailStack.addDependency(rootDomainStack);
+        }
+      }
     } catch (error) {
       throw new OrchestrationError(
         'Failed to create Domain Management stacks',
@@ -429,15 +455,12 @@ export class ServerlessSaasOrchestrator {
           .filter((app: any) => app.scheduledJobs && app.scheduledJobs.length > 0)
           .map((app: any) => app.name);
 
-        // Also include brands with trialExpiryChecker for ECR repo creation
+        // Brands with trialExpiryChecker (per-service ECR repo created via
+        // customRepositories below — no longer merged into scheduledJobBrands,
+        // which would create an unused legacy `{brand}-jobs` repo).
         const trialExpiryEcrBrands = saasWorkload
           .filter((app: any) => app.trialExpiryChecker)
           .map((app: any) => app.name);
-        for (const brand of trialExpiryEcrBrands) {
-          if (!scheduledJobBrands.includes(brand)) {
-            scheduledJobBrands.push(brand);
-          }
-        }
 
         // Brands with any non-marketing services (for DynamoDB/Secrets creation)
         const nonMarketingBrands = saasWorkload
@@ -450,6 +473,7 @@ export class ServerlessSaasOrchestrator {
         // Track stacks for dependencies
         let dynamodbStack: DynamoDBStack | undefined;
         let ecrStack: EcrRepositoryStack | undefined;
+        let secretsStack: SaasSecretsStack | undefined;
 
         // 1. Secrets Stack (for application secrets - no database URLs needed with DynamoDB)
         if (nonMarketingBrands.length > 0) {
@@ -475,10 +499,12 @@ export class ServerlessSaasOrchestrator {
                   continue;
                 }
 
-                // For core + OAuth secrets, create for all brands with domains
+                // For core + OAuth/SES secrets, create for all brands with domains
                 if (
                   app.name === 'core' &&
-                  ['google-oauth', 'apple-oauth', 'microsoft-oauth'].includes(secretType)
+                  ['google-oauth', 'apple-oauth', 'microsoft-oauth', 'ses-smtp'].includes(
+                    secretType,
+                  )
                 ) {
                   for (const brand of oauthBrands) {
                     if (!secretTypeToBrands[secretType].includes(brand)) {
@@ -573,12 +599,27 @@ export class ServerlessSaasOrchestrator {
               });
             }
 
-            new SaasSecretsStack(app, envNaming.stackName('Secrets'), {
+            // SES SMTP credentials (for contact form emails)
+            if (secretTypeToBrands['ses-smtp']?.length) {
+              secretItems.push({
+                key: 'ses-smtp',
+                description: 'SES SMTP credentials for contact form',
+                perBrand: true,
+                brandsOverride: secretTypeToBrands['ses-smtp'],
+                jsonFields: ['host', 'port', 'username', 'password'],
+              });
+            }
+
+            secretsStack = new SaasSecretsStack(app, envNaming.stackName('Secrets'), {
               stackConfig,
               secretsConfig: {
                 recoveryWindowInDays: 7,
                 brands: nonMarketingBrands,
                 items: secretItems,
+                // Provision the Plaid `providerAccessToken` envelope-encryption
+                // CMK whenever any brand declares Plaid (P12 / FW-1). Lambda
+                // and EventHandler stacks pick this up below.
+                plaidTokenKey: (secretTypeToBrands['plaid']?.length ?? 0) > 0,
               },
               env: envEnv,
             });
@@ -604,78 +645,47 @@ export class ServerlessSaasOrchestrator {
               env: envEnv,
             });
 
-            // 2b. Product Seed Stack (seeds product entities into core table)
-            const coreTable = dynamodbStack.tables.get('core');
-            if (coreTable) {
-              // Build products from saasWorkload (exclude 'core' which is not a product)
-              const products = saasWorkload
-                .filter((app: any) => app.name !== 'core')
-                .map((app: any) => ({
-                  id: app.name,
-                  name: app.name.charAt(0).toUpperCase() + app.name.slice(1),
-                  description: app.domain
-                    ? `${app.name.charAt(0).toUpperCase() + app.name.slice(1)} platform`
-                    : undefined,
-                }));
-
-              if (products.length > 0) {
-                const productSeedStack = new ProductSeedStack(
+            // 2b. Trial Expiry Checker Stack — runs against the declaring
+            // brand's own table. (Phase 9: the core workload was consolidated
+            // into savvue; auth/subscription entities live in the brand table,
+            // and ProductSeedStack was removed with core-api's requireProduct.)
+            const trialExpiryBrands = saasWorkload.filter((app) => app.trialExpiryChecker);
+            for (const trialBrandApp of trialExpiryBrands) {
+              const trialBrandTable = dynamodbStack.tables.get(trialBrandApp.name);
+              if (!trialBrandTable) {
+                // trialExpiryChecker requires lambdaApi: true on the same
+                // brand (the checker reads the brand's Subscription rows).
+                throw new OrchestrationError(
+                  `trialExpiryChecker on brand '${trialBrandApp.name}' requires lambdaApi: true (no table found)`,
+                  'saasWorkload',
+                );
+              }
+              try {
+                const trialExpiryStack = new TrialExpiryStack(
                   app,
-                  envNaming.stackName('ProductSeed'),
+                  envNaming.stackName('TrialExpiry'),
                   {
                     stackConfig,
-                    products,
-                    coreTable,
+                    tableName: trialBrandTable.tableName,
+                    tableArn: trialBrandTable.tableArn,
+                    // The image stays in the legacy-named per-service repo
+                    // `core-trial-expiry-checker` (kept to avoid an ECR
+                    // re-seed at cutover; renaming is optional post-cutover
+                    // cleanup — see phase9-core-consolidation-cutover.md).
+                    ecrServiceName: 'core-trial-expiry-checker',
                     env: envEnv,
                   },
                 );
-                productSeedStack.addDependency(dynamodbStack);
-              }
-
-              // 2c. Trial Expiry Checker Stack
-              const trialExpiryBrands = saasWorkload.filter((app) => app.trialExpiryChecker);
-              if (trialExpiryBrands.length > 0 && coreTable) {
-                try {
-                  // Collect brand tables for Plaid connection management
-                  const brandTables = saasWorkload
-                    .filter((app) => app.name !== 'core' && app.lambdaApi && dynamodbStack)
-                    .map((app) => {
-                      const table = dynamodbStack!.tables.get(app.name);
-                      return table
-                        ? {
-                            brand: app.name,
-                            tableName: table.tableName,
-                            tableArn: table.tableArn,
-                          }
-                        : null;
-                    })
-                    .filter(
-                      (t): t is { brand: string; tableName: string; tableArn: string } =>
-                        t !== null,
-                    );
-
-                  const trialExpiryStack = new TrialExpiryStack(
-                    app,
-                    envNaming.stackName('TrialExpiry'),
-                    {
-                      stackConfig,
-                      coreTableName: coreTable.tableName,
-                      coreTableArn: coreTable.tableArn,
-                      brandTables,
-                      env: envEnv,
-                    },
-                  );
-                  trialExpiryStack.addDependency(dynamodbStack);
-                  if (ecrStack) {
-                    trialExpiryStack.addDependency(ecrStack);
-                  }
-                } catch (error) {
-                  throw new OrchestrationError(
-                    `Failed to create Trial Expiry stack for environment ${envName}`,
-                    'saasWorkload',
-                    error instanceof Error ? error : new Error(String(error)),
-                  );
+                trialExpiryStack.addDependency(dynamodbStack);
+                if (ecrStack) {
+                  trialExpiryStack.addDependency(ecrStack);
                 }
+              } catch (error) {
+                throw new OrchestrationError(
+                  `Failed to create Trial Expiry stack for environment ${envName}`,
+                  'saasWorkload',
+                  error instanceof Error ? error : new Error(String(error)),
+                );
               }
             }
           } catch (error) {
@@ -688,10 +698,46 @@ export class ServerlessSaasOrchestrator {
         }
 
         // 3. ECR Repository Stack (for Lambda container images)
+        //
+        // Per-service ECR repos (one repo per Lambda image) — the canonical
+        // model after the savvue event-handler split + core trial-expiry rename:
+        //   - `savvue-auto-matcher` (was part of `savvue-event-handlers`)
+        //   - `savvue-post-sync`    (was part of `savvue-event-handlers`)
+        //   - `core-trial-expiry-checker` (was part of `core-jobs`)
+        //
+        // The legacy shared repos (`{brand}-event-handlers`, `core-jobs`) are
+        // still created below via `eventHandlerBrands` / `scheduledJobBrands`
+        // for one deploy cycle so any orphaned consumers can keep pulling.
+        // Drop those `eventHandlerBrands`/`scheduledJobBrands` props in a
+        // follow-up PR once the new repos are confirmed populated by CI and
+        // no Lambda still references the legacy ones.
+        const customRepositories: Array<{ brand: string; serviceName: string }> = [];
+        const handlerEcrRepositories: Record<string, string> = {};
+        // Phase 9 decoupling: the per-service event-handler ECR split
+        // (savvue-auto-matcher / savvue-post-sync repos + handler repointing) is
+        // a SEPARATE, still-incomplete effort — the new repos have no images and
+        // the local Docker packaging (pnpm install --prod in deploy-lambda.sh)
+        // for the handlers is unfinished. Leaving handlerEcrRepositories empty
+        // makes EventHandlerLambdaStack fall back to the working shared
+        // `savvue-event-handlers` repo (which the live auto-matcher/post-sync
+        // Lambdas already run), so the core->savvue consolidation can deploy
+        // without dragging in that unrelated WIP. Restore the two
+        // customRepositories.push(...) + handlerEcrRepositories[...] lines once
+        // the event-handler split (images + Dockerfile packaging) is ready.
+        if (trialExpiryEcrBrands.length > 0) {
+          // Phase 9: the trial-expiry workload moved under `savvue`, but the
+          // image keeps its legacy-named repo (`core-trial-expiry-checker`)
+          // to avoid an ECR re-seed at cutover (deploy.yml's SSM lookup uses
+          // BRAND: core for the same reason). Renaming is optional
+          // post-cutover cleanup.
+          customRepositories.push({ brand: 'core', serviceName: 'trial-expiry-checker' });
+        }
+
         if (
           lambdaApiBrands.length > 0 ||
           eventHandlerBrands.length > 0 ||
-          scheduledJobBrands.length > 0
+          scheduledJobBrands.length > 0 ||
+          customRepositories.length > 0
         ) {
           try {
             ecrStack = new EcrRepositoryStack(app, envNaming.stackName('ECR'), {
@@ -701,6 +747,7 @@ export class ServerlessSaasOrchestrator {
                 apiBrands: lambdaApiBrands,
                 eventHandlerBrands: eventHandlerBrands.length > 0 ? eventHandlerBrands : undefined,
                 scheduledJobBrands: scheduledJobBrands.length > 0 ? scheduledJobBrands : undefined,
+                customRepositories: customRepositories.length > 0 ? customRepositories : undefined,
               },
               env: envEnv,
             });
@@ -716,51 +763,77 @@ export class ServerlessSaasOrchestrator {
         // 4. Lambda Function Stack (Lambda + API Gateway + DynamoDB)
         if (lambdaApiBrands.length > 0 && dynamodbStack) {
           try {
-            // Collect all brand Stripe configs for api-core
-            const allBrandStripeEnvVars: Record<string, string> = {};
-            for (const app of saasWorkload) {
-              if (app.stripe?.[envName]) {
-                const stripeConfig = app.stripe[envName];
-                const brandUpper = app.name.toUpperCase();
-                if (stripeConfig.priceIdMonthly) {
-                  allBrandStripeEnvVars[`STRIPE_PRICE_ID_MONTHLY_${brandUpper}`] =
-                    stripeConfig.priceIdMonthly;
-                }
-                if (stripeConfig.priceIdAnnual) {
-                  allBrandStripeEnvVars[`STRIPE_PRICE_ID_ANNUAL_${brandUpper}`] =
-                    stripeConfig.priceIdAnnual;
-                }
-              }
-            }
-
             // Build Lambda function configs from lambdaApiBrands
             const lambdaFunctions = lambdaApiBrands.map((brand) => {
               const environment: Record<string, string> = {};
 
-              if (brand === 'core') {
-                Object.assign(environment, allBrandStripeEnvVars);
-              } else {
-                const brandConfig = saasWorkload.find((app: any) => app.name === brand);
-                if (brandConfig?.stripe?.[envName]) {
-                  const stripeConfig = brandConfig.stripe[envName];
-                  const brandUpper = brand.toUpperCase();
-                  if (stripeConfig.priceIdMonthly) {
-                    environment[`STRIPE_PRICE_ID_MONTHLY_${brandUpper}`] =
-                      stripeConfig.priceIdMonthly;
-                  }
-                  if (stripeConfig.priceIdAnnual) {
-                    environment[`STRIPE_PRICE_ID_ANNUAL_${brandUpper}`] =
-                      stripeConfig.priceIdAnnual;
-                  }
+              // Inject API base URL for inter-service calls (e.g. savvue-api → core-api).
+              // Uses the brand's own domain since all brand APIs share the API Gateway.
+              const ownBrandConfig = saasWorkload.find((app: any) => app.name === brand);
+              const ownDomain = ownBrandConfig?.domain as string | undefined;
+              if (ownDomain) {
+                environment.API_BASE_URL =
+                  envName === 'prod'
+                    ? `https://api.${ownDomain}`
+                    : `https://${envName}-api.${ownDomain}`;
+              }
+
+              // Brand table name + Plaid secret prefix — read by the brand
+              // API's Stripe webhook (customer.deleted unwind → Plaid revoke
+              // via the shared disconnectUserConnections helper) as
+              // BRAND_TABLE_{BRAND_UPPER} and PLAID_SECRET_PREFIX. (Phase 9:
+              // formerly injected only into core-api; the webhook now lives
+              // in the brand API.)
+              const ownBrandTable = dynamodbStack!.tables.get(brand);
+              if (ownBrandTable) {
+                environment[`BRAND_TABLE_${brand.toUpperCase()}`] = ownBrandTable.tableName;
+              }
+              environment.PLAID_SECRET_PREFIX = `${stackConfig.project}/${envName}`;
+
+              if (ownBrandConfig?.stripe?.[envName]) {
+                const stripeConfig = ownBrandConfig.stripe[envName];
+                const brandUpper = brand.toUpperCase();
+                if (stripeConfig.priceIdMonthly) {
+                  environment[`STRIPE_PRICE_ID_MONTHLY_${brandUpper}`] =
+                    stripeConfig.priceIdMonthly;
+                }
+                if (stripeConfig.priceIdAnnual) {
+                  environment[`STRIPE_PRICE_ID_ANNUAL_${brandUpper}`] = stripeConfig.priceIdAnnual;
+                }
+                if (stripeConfig.priceIdExtraConnectionMonthly) {
+                  environment[`STRIPE_PRICE_ID_EXTRA_CONNECTION_MONTHLY_${brandUpper}`] =
+                    stripeConfig.priceIdExtraConnectionMonthly;
+                }
+                if (stripeConfig.priceIdExtraConnectionAnnual) {
+                  environment[`STRIPE_PRICE_ID_EXTRA_CONNECTION_ANNUAL_${brandUpper}`] =
+                    stripeConfig.priceIdExtraConnectionAnnual;
                 }
               }
 
+              // Per-brand alarm wiring. Each alarm fires only when the brand
+              // declares its `opsEmail` in the manifest under `alarms.<name>`:
+              //   - orphanPlaidItem  (Gap-11) — savvue-api Plaid /item/remove
+              //   - unknownPriceId   (PX.1)   — core-api Stripe price-mapping
+              const brandAlarms = (saasWorkload.find((app: any) => app.name === brand) as any)
+                ?.alarms;
+              const orphanPlaidItemAlarm = brandAlarms?.orphanPlaidItem?.opsEmail
+                ? { opsEmail: brandAlarms.orphanPlaidItem.opsEmail as string }
+                : undefined;
+              const unknownPriceIdAlarm = brandAlarms?.unknownPriceId?.opsEmail
+                ? { opsEmail: brandAlarms.unknownPriceId.opsEmail as string }
+                : undefined;
+
               return {
-                name: `api-${brand}`,
+                // Lambda function name pattern: `{brand}-api` (canonical, matches
+                // ECR repo and saas-ui Nx project IDs). Deployed as
+                // `saas-{env}-{brand}-api` (e.g. `saas-nprd-savvue-api`).
+                name: `${brand}-api`,
                 ecrRepositoryName: `${brand}-api`,
                 memorySize: lambdaDefaults?.memorySize ?? 1024,
                 timeout: lambdaDefaults?.timeout ?? 30,
                 environment: Object.keys(environment).length > 0 ? environment : undefined,
+                orphanPlaidItemAlarm,
+                unknownPriceIdAlarm,
               };
             });
 
@@ -776,18 +849,24 @@ export class ServerlessSaasOrchestrator {
                 eventBridgeBusName,
               },
               dynamodbTables: dynamodbStack.tables,
+              plaidTokenKey: secretsStack?.plaidTokenKey,
               env: envEnv,
             });
             lambdaStack.addDependency(dynamodbStack);
             if (ecrStack) {
               lambdaStack.addDependency(ecrStack);
             }
+            if (secretsStack?.plaidTokenKey) {
+              lambdaStack.addDependency(secretsStack);
+            }
 
             // 7b. API Gateway Stack (HTTP API with routes to Lambda functions)
             try {
               const apiRoutes = lambdaApiBrands.map((brand) => ({
                 path: `/${brand}/{proxy+}`,
-                lambdaName: `api-${brand}`,
+                // Must match the Lambda `fnConfig.name` set above so the API
+                // Gateway integration can look it up in `lambdaStack.functions`.
+                lambdaName: `${brand}-api`,
               }));
 
               // Derive CORS origins from brands with domains
@@ -828,10 +907,18 @@ export class ServerlessSaasOrchestrator {
                     ? (lambdaDefaults.eventBridgeBusName as string).replace('{env}', envName)
                     : undefined;
 
+                  // Per-brand extras for event handlers. Mirrors the
+                  // `PLAID_SECRET_PREFIX` convention used by savvue-api (see
+                  // the lambdaFunctions map above) so post-sync-handler-savvue
+                  // can resolve Plaid credentials at runtime when calling the
+                  // shared sync services.
                   const handlers = eventHandlerBrands.map((brand) => ({
                     brand,
                     memorySize: lambdaDefaults?.memorySize ?? 1024,
                     timeout: lambdaDefaults?.timeout ?? 30,
+                    extraEnvironment: {
+                      PLAID_SECRET_PREFIX: `${stackConfig.project}/${envName}`,
+                    },
                   }));
 
                   eventHandlerStack = new EventHandlerLambdaStack(
@@ -842,12 +929,24 @@ export class ServerlessSaasOrchestrator {
                       handlers,
                       dynamodbTables: dynamodbStack.tables,
                       eventBridgeBusName: eventBridgeBusNameForHandlers,
+                      plaidTokenKey: secretsStack?.plaidTokenKey,
+                      // Cutover: each handler imports its own per-service ECR
+                      // repo (savvue-auto-matcher, savvue-post-sync) instead
+                      // of the legacy shared `savvue-event-handlers` repo.
+                      // Built above alongside `customRepositories`.
+                      handlerEcrRepositories:
+                        Object.keys(handlerEcrRepositories).length > 0
+                          ? handlerEcrRepositories
+                          : undefined,
                       env: envEnv,
                     },
                   );
 
                   eventHandlerStack.addDependency(dynamodbStack);
                   eventHandlerStack.addDependency(ecrStack);
+                  if (secretsStack?.plaidTokenKey) {
+                    eventHandlerStack.addDependency(secretsStack);
+                  }
                 } catch (error) {
                   throw new OrchestrationError(
                     `Failed to create Event Handler Lambda stack for environment ${envName}`,
