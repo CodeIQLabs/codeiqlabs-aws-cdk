@@ -96,14 +96,12 @@ Active and stable. Published to GitHub Packages. Used by all CodeIQLabs infrastr
 
 ## Quick Start
 
-See `.kiro/steering/build.md` for detailed build process, dependency chain, and troubleshooting.
-
 ```bash
 pnpm install && pnpm run build
 ```
 
-After changes, rebuild and reinstall in consuming repos. See steering file for full pre-flight
-checklist.
+Depends on `aws-utils` (rebuild it first). Full build/test/troubleshooting workflow:
+[`codeiqlabs-docs/runbooks/build-cdk-libraries.md`](../codeiqlabs-docs/runbooks/build-cdk-libraries.md).
 
 ## Dependencies
 
@@ -249,10 +247,10 @@ this.originDomain = `origin-${props.environment}.${props.hostedZoneName}`;
 
 | Working on...       | Apply guidance from...         |
 | ------------------- | ------------------------------ |
-| `src/constructs/**` | `.kiro/steering/constructs.md` |
-| `src/stacks/**`     | `.kiro/steering/stacks.md`     |
-| `src/patterns/**`   | `.kiro/steering/patterns.md`   |
-| Build/publish tasks | `.kiro/steering/build.md`      |
+| `src/constructs/**` | `docs/steering/constructs.md` |
+| `src/stacks/**`     | `docs/steering/stacks.md`     |
+| `src/patterns/**`   | `docs/steering/patterns.md`   |
+| Build/publish tasks | `docs/steering/build.md`      |
 
 ## Key Files
 
