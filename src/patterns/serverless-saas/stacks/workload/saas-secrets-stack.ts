@@ -35,6 +35,7 @@
 import * as cdk from 'aws-cdk-lib';
 import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
 import * as iam from 'aws-cdk-lib/aws-iam';
+import * as kms from 'aws-cdk-lib/aws-kms';
 import type { Construct } from 'constructs';
 import { BaseStack, BaseStackProps } from '../../../../stacks/base';
 
@@ -107,6 +108,21 @@ export interface SaasSecretsConfig {
    * Secret items to create
    */
   items?: SecretItemConfig[];
+
+  /**
+   * When true, provision a customer-managed KMS key dedicated to
+   * envelope-encrypting Plaid `providerAccessToken` values at rest in
+   * DynamoDB (P12 / FW-1). The key ARN is exposed as
+   * {@link SaasSecretsStack.plaidTokenKey} for downstream stacks
+   * (LambdaFunctionStack, EventHandlerLambdaStack) to grant
+   * `kms:Encrypt` / `kms:Decrypt` to their respective execution roles.
+   *
+   * Scope is intentionally narrow: this key must NOT be used for
+   * unrelated secret material.
+   *
+   * @default false
+   */
+  plaidTokenKey?: boolean;
 }
 
 /**
@@ -147,6 +163,15 @@ export class SaasSecretsStack extends BaseStack {
    * IAM policy that grants read access to all secrets
    */
   public readonly secretsReadPolicy: iam.ManagedPolicy;
+
+  /**
+   * Customer-managed KMS key for Plaid `providerAccessToken` envelope
+   * encryption (P12 / FW-1). Only present when
+   * `secretsConfig.plaidTokenKey === true`. Downstream Lambda stacks
+   * read this and call `grantEncryptDecrypt` / `grantDecrypt` on their
+   * execution roles.
+   */
+  public readonly plaidTokenKey?: kms.Key;
 
   constructor(scope: Construct, id: string, props: SaasSecretsStackProps) {
     super(scope, id, 'Secrets', props);
@@ -246,6 +271,25 @@ export class SaasSecretsStack extends BaseStack {
       exportName: this.naming.exportName('secrets-read-policy-arn'),
       description: 'Secrets Read Policy ARN',
     });
+
+    // Plaid `providerAccessToken` envelope-encryption key (P12 / FW-1).
+    // Scoped narrowly: do not reuse this key for unrelated secrets.
+    // Lambda execution roles are granted Encrypt/Decrypt downstream
+    // (LambdaFunctionStack, EventHandlerLambdaStack).
+    if (config.plaidTokenKey) {
+      this.plaidTokenKey = new kms.Key(this, 'PlaidTokenKey', {
+        alias: this.naming.resourceName('plaid-token-key'),
+        description: `Envelope-encryption key for Plaid providerAccessToken values in ${env}`,
+        enableKeyRotation: true,
+        removalPolicy: cdk.RemovalPolicy.RETAIN,
+      });
+
+      new cdk.CfnOutput(this, 'PlaidTokenKeyArn', {
+        value: this.plaidTokenKey.keyArn,
+        exportName: this.naming.exportName('plaid-token-key-arn'),
+        description: 'KMS key ARN for Plaid providerAccessToken envelope encryption',
+      });
+    }
   }
 
   /**

@@ -40,14 +40,40 @@ export interface EcrRepositoryConfig {
   /**
    * Brands that need event handler ECR repositories
    * Creates repositories with naming pattern `{brand}-event-handlers`
+   *
+   * @deprecated Prefer `customRepositories` so each Lambda gets its own repo
+   *   (e.g. `savvue-auto-matcher`, `savvue-post-sync`). Kept for backward
+   *   compatibility with consumers that still build a single image per brand.
    */
   eventHandlerBrands?: string[];
 
   /**
    * Brands that need scheduled job ECR repositories
    * Creates repositories with naming pattern `{brand}-jobs`
+   *
+   * @deprecated Prefer `customRepositories` for service-specific naming
+   *   (e.g. `core-trial-expiry-checker`).
    */
   scheduledJobBrands?: string[];
+
+  /**
+   * Service-specific ECR repositories.
+   *
+   * Each entry creates one ECR repository named `{brand}-{serviceName}` and
+   * one SSM parameter at `/{company}/saas/{env}/ecr/{brand}/{serviceName}/repository-name`.
+   *
+   * Use this for one-Lambda-per-image deployments where the legacy "one image
+   * per brand for all event handlers" model isn't a fit:
+   *
+   * ```ts
+   * customRepositories: [
+   *   { brand: 'savvue', serviceName: 'auto-matcher' },
+   *   { brand: 'savvue', serviceName: 'post-sync' },
+   *   { brand: 'core',   serviceName: 'trial-expiry-checker' },
+   * ]
+   * ```
+   */
+  customRepositories?: Array<{ brand: string; serviceName: string }>;
 
   /**
    * Image tag mutability setting
@@ -107,6 +133,12 @@ export class EcrRepositoryStack extends BaseStack {
    */
   public readonly scheduledJobRepositories: Record<string, ecr.IRepository> = {};
 
+  /**
+   * Map of `{brand}-{serviceName}` to custom ECR repository.
+   * Populated from `customRepositories` config entries.
+   */
+  public readonly customRepositoriesMap: Record<string, ecr.IRepository> = {};
+
   constructor(scope: Construct, id: string, props: EcrRepositoryStackProps) {
     super(scope, id, 'ECR', props);
 
@@ -115,6 +147,7 @@ export class EcrRepositoryStack extends BaseStack {
     const apiBrands = config.apiBrands ?? [];
     const eventHandlerBrands = config.eventHandlerBrands ?? [];
     const scheduledJobBrands = config.scheduledJobBrands ?? [];
+    const customRepositories = config.customRepositories ?? [];
     const imageTagMutability = config.imageTagMutability ?? ecr.TagMutability.MUTABLE;
     const imageScanOnPush = config.imageScanOnPush ?? true;
     const maxImageCount = config.maxImageCount ?? 10;
@@ -166,6 +199,18 @@ export class EcrRepositoryStack extends BaseStack {
       );
       this.scheduledJobRepositories[brand] = repository;
     }
+
+    // Create service-specific (custom) repositories
+    for (const entry of customRepositories) {
+      const repository = this.createRepository(
+        entry.brand,
+        entry.serviceName,
+        imageTagMutability,
+        imageScanOnPush,
+        maxImageCount,
+      );
+      this.customRepositoriesMap[`${entry.brand}-${entry.serviceName}`] = repository;
+    }
   }
 
   /**
@@ -173,7 +218,7 @@ export class EcrRepositoryStack extends BaseStack {
    */
   private createRepository(
     brand: string,
-    serviceType: 'webapp' | 'api' | 'event-handlers' | 'jobs',
+    serviceType: string,
     imageTagMutability: ecr.TagMutability,
     imageScanOnPush: boolean,
     maxImageCount: number,

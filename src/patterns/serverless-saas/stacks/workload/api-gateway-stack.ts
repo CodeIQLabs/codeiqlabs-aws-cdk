@@ -23,8 +23,8 @@
  *   },
  *   config: {
  *     routes: [
- *       { path: '/core/{proxy+}', lambdaName: 'api-core' },
- *       { path: '/savvue/{proxy+}', lambdaName: 'api-savvue' },
+ *       { path: '/core/{proxy+}', lambdaName: 'core-api' },
+ *       { path: '/savvue/{proxy+}', lambdaName: 'savvue-api' },
  *     ],
  *     corsOrigins: ['https://app.savvue.com'],
  *   },
@@ -50,7 +50,7 @@ export interface ApiRouteConfig {
   path: string;
 
   /**
-   * Lambda function name (e.g., 'api-core', 'api-savvue')
+   * Lambda function name (e.g., 'core-api', 'savvue-api')
    * Will be resolved to full function name: saas-{env}-{lambdaName}
    */
   lambdaName: string;
@@ -224,11 +224,20 @@ export class ApiGatewayStack extends BaseStack {
 
         // Create API mapping using L1 construct to properly reference the domain name
         // The L2 ApiMapping construct doesn't work with imported DomainName
-        new apigatewayv2.CfnApiMapping(this, `ApiMapping${sanitizedDomain}`, {
+        const apiMapping = new apigatewayv2.CfnApiMapping(this, `ApiMapping${sanitizedDomain}`, {
           apiId: this.httpApi.apiId,
           domainName: domainNameValue,
           stage: '$default',
         });
+
+        // The mapping targets the HTTP API's auto-created `$default` stage. On a
+        // fresh stack create the L1 mapping would otherwise race ahead of the
+        // stage and fail with "Invalid stage identifier specified" (only worked
+        // historically because the mapping was added in a later update, after
+        // the stage already existed). Depend on the stage explicitly.
+        if (this.httpApi.defaultStage) {
+          apiMapping.node.addDependency(this.httpApi.defaultStage);
+        }
 
         new cdk.CfnOutput(this, `ApiMapping${sanitizedDomain}Output`, {
           value: domainNameValue,

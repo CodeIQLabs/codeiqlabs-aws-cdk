@@ -1,0 +1,2 @@
+overrides:
+  "@codeiqlabs/aws-utils": link:../codeiqlabs-aws-utils

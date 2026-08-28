@@ -8,3 +8,4 @@ export * from './route53/types';
 export * from './acm/types';
 export * from './organizations/types';
 export * from './identity-center/types';
+export * from './ses/types';

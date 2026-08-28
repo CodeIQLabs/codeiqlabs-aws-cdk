@@ -13,6 +13,7 @@ export * from './route53';
 export * from './acm';
 export * from './organizations';
 export * from './identity-center';
+export * from './ses';
 
 // Common types
 export * from './types';

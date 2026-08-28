@@ -11,6 +11,9 @@
  *
  * Event Handlers:
  * - auto-matcher-handler-savvue: Handles transaction.categorized events (Savvue only)
+ * - post-sync-handler-savvue:    Handles plaid.sync.completed events via SQS FIFO
+ *                                (Savvue only — runs balance snapshots, suggestion
+ *                                application, recurring + investment txn sync)
  *
  * Note: upgrade-handler, trial-expiry, and tier-changed handlers were removed.
  * Tier is now read from JWT only - webapp refreshes token after subscription changes.
@@ -41,6 +44,7 @@ import * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
 import * as lambda from 'aws-cdk-lib/aws-lambda';
 import * as ecr from 'aws-cdk-lib/aws-ecr';
 import * as iam from 'aws-cdk-lib/aws-iam';
+import * as kms from 'aws-cdk-lib/aws-kms';
 import * as ssm from 'aws-cdk-lib/aws-ssm';
 import type { Construct } from 'constructs';
 import { BaseStack, BaseStackProps } from '../../../../stacks/base';
@@ -73,6 +77,14 @@ export interface EventHandlerConfig {
    * @default 'latest'
    */
   imageTag?: string;
+
+  /**
+   * Additional environment variables merged into every handler Lambda
+   * created for this brand. Used to pass brand-scoped runtime config
+   * (e.g. `PLAID_SECRET_PREFIX`) that the post-sync handler reads when
+   * calling Plaid via the savvue-api services.
+   */
+  extraEnvironment?: Record<string, string>;
 }
 
 /**
@@ -97,6 +109,40 @@ export interface EventHandlerLambdaStackProps extends BaseStackProps {
    * @default undefined (no EventBridge publish access)
    */
   eventBridgeBusName?: string;
+
+  /**
+   * Optional KMS key for Plaid `providerAccessToken` envelope
+   * encryption (P12 / FW-1). When provided, only the `savvue` brand
+   * role is granted `kms:Decrypt` (post-sync-handler-savvue is the
+   * sole consumer; it never writes tokens) and
+   * `PLAID_TOKEN_KMS_KEY_ID` is injected into that brand's environment.
+   */
+  plaidTokenKey?: kms.IKey;
+
+  /**
+   * Per-handler ECR repository names, keyed by handler name.
+   *
+   * When provided, each handler imports its own ECR repository instead of
+   * the legacy single `{brand}-event-handlers` repo. The handler name keys
+   * are the un-prefixed Lambda names (the same string passed as
+   * `cmd: ['{handlerName}.handler']`).
+   *
+   * Example for savvue:
+   * ```ts
+   * handlerEcrRepositories: {
+   *   'auto-matcher-handler-savvue': 'savvue-auto-matcher',
+   *   'post-sync-handler-savvue':    'savvue-post-sync',
+   * }
+   * ```
+   *
+   * The values are passed through `naming.resourceName(...)` so they should
+   * be the un-prefixed service name (e.g. `savvue-auto-matcher`, not
+   * `saas-nprd-savvue-auto-matcher`).
+   *
+   * If omitted, the stack falls back to the legacy single-repo lookup
+   * (`{brand}-event-handlers`).
+   */
+  handlerEcrRepositories?: Record<string, string>;
 }
 
 /**
@@ -123,12 +169,20 @@ export class EventHandlerLambdaStack extends BaseStack {
   constructor(scope: Construct, id: string, props: EventHandlerLambdaStackProps) {
     super(scope, id, 'EventHandlerLambda', props);
 
-    const { handlers, dynamodbTables, eventBridgeBusName } = props;
+    const { handlers, dynamodbTables, eventBridgeBusName, plaidTokenKey } = props;
     const stackConfig = this.getStackConfig();
+
+    const { handlerEcrRepositories } = props;
 
     // Create Lambda functions for each brand
     for (const handler of handlers) {
-      const { brand, memorySize = 1024, timeout = 30, imageTag = 'latest' } = handler;
+      const {
+        brand,
+        memorySize = 1024,
+        timeout = 30,
+        imageTag = 'latest',
+        extraEnvironment,
+      } = handler;
 
       // Get brand's DynamoDB table
       const brandTable = dynamodbTables.get(brand);
@@ -145,16 +199,6 @@ export class EventHandlerLambdaStack extends BaseStack {
         eventBridgeBusName,
       );
 
-      // Import ECR repository for event handlers
-      const ecrRepository = ecr.Repository.fromRepositoryName(
-        this,
-        `${brand}EventHandlersEcrRepo`,
-        this.naming.resourceName(`${brand}-event-handlers`),
-      );
-
-      // Grant ECR pull permissions to the execution role
-      ecrRepository.grantPull(executionRole);
-
       // Build environment variables for event handlers
       const environment: Record<string, string> = {
         NODE_ENV: 'production',
@@ -166,14 +210,53 @@ export class EventHandlerLambdaStack extends BaseStack {
         environment.EVENTBRIDGE_BUS_NAME = eventBridgeBusName;
       }
 
+      // Merge per-brand extras (e.g. PLAID_SECRET_PREFIX for post-sync)
+      if (extraEnvironment) {
+        Object.assign(environment, extraEnvironment);
+      }
+
+      // Plaid token envelope encryption (P12). Only post-sync-handler-savvue
+      // reads tokens; grant Decrypt-only on the savvue brand role and inject
+      // the env var so `decryptToken` activates at runtime.
+      if (plaidTokenKey && brand === 'savvue') {
+        plaidTokenKey.grantDecrypt(executionRole);
+        environment.PLAID_TOKEN_KMS_KEY_ID = plaidTokenKey.keyArn;
+      }
+
       // Create auto-matcher handler (Savvue-specific only)
       // Handles transaction.categorized events to create suggestions for similar transactions
       // Note: upgrade-handler and trial-expiry were removed - tier is read from JWT only
       if (brand === 'savvue') {
+        const autoMatcherEcr = this.resolveHandlerEcr(
+          brand,
+          `auto-matcher-handler-${brand}`,
+          handlerEcrRepositories,
+        );
+        autoMatcherEcr.grantPull(executionRole);
         this.createEventHandler(
           `auto-matcher-handler-${brand}`,
           brand,
-          ecrRepository,
+          autoMatcherEcr,
+          executionRole,
+          environment,
+          memorySize,
+          timeout,
+          imageTag,
+        );
+
+        // Post-sync handler runs balance snapshots, suggestion application,
+        // recurring + investment transaction sync after a Plaid webhook.
+        // Triggered via SQS FIFO from EventBridge (`plaid.sync.completed`).
+        const postSyncEcr = this.resolveHandlerEcr(
+          brand,
+          `post-sync-handler-${brand}`,
+          handlerEcrRepositories,
+        );
+        postSyncEcr.grantPull(executionRole);
+        this.createEventHandler(
+          `post-sync-handler-${brand}`,
+          brand,
+          postSyncEcr,
           executionRole,
           environment,
           memorySize,
@@ -182,6 +265,38 @@ export class EventHandlerLambdaStack extends BaseStack {
         );
       }
     }
+  }
+
+  /**
+   * Resolve which ECR repository a given handler imports its image from.
+   *
+   * Prefers the per-handler entry from `handlerEcrRepositories` when
+   * provided; falls back to the legacy `{brand}-event-handlers` shared
+   * repo so existing consumers keep working without changes.
+   */
+  private resolveHandlerEcr(
+    brand: string,
+    handlerName: string,
+    handlerEcrRepositories?: Record<string, string>,
+  ): ecr.IRepository {
+    const customServiceName = handlerEcrRepositories?.[handlerName];
+    if (customServiceName) {
+      return ecr.Repository.fromRepositoryName(
+        this,
+        `${handlerName}EcrRepo`,
+        this.naming.resourceName(customServiceName),
+      );
+    }
+    // Legacy fallback: one shared `{brand}-event-handlers` repo for all handlers.
+    // Memoize so multiple handlers in the same brand share the construct.
+    const legacyId = `${brand}EventHandlersEcrRepo`;
+    const existing = this.node.tryFindChild(legacyId) as ecr.IRepository | undefined;
+    if (existing) return existing;
+    return ecr.Repository.fromRepositoryName(
+      this,
+      legacyId,
+      this.naming.resourceName(`${brand}-event-handlers`),
+    );
   }
 
   /**
@@ -222,6 +337,19 @@ export class EventHandlerLambdaStack extends BaseStack {
         }),
       );
     }
+
+    // Secrets Manager read access scoped to the brand's project namespace.
+    // Required by post-sync-handler-savvue, which calls Plaid via the
+    // shared savvue-api services and resolves credentials at runtime.
+    executionRole.addToPolicy(
+      new iam.PolicyStatement({
+        effect: iam.Effect.ALLOW,
+        actions: ['secretsmanager:GetSecretValue', 'secretsmanager:DescribeSecret'],
+        resources: [
+          `arn:aws:secretsmanager:${stackConfig.region}:${stackConfig.accountId}:secret:*`,
+        ],
+      }),
+    );
 
     return executionRole;
   }

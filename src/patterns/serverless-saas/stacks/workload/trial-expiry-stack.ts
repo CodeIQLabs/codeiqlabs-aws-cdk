@@ -6,59 +6,52 @@ import * as targets from 'aws-cdk-lib/aws-events-targets';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import { BaseStack, BaseStackProps } from '../../../../stacks/base';
 
-export interface BrandTableConfig {
+export interface TrialExpiryStackProps extends BaseStackProps {
   /**
-   * Brand name (e.g., 'savvue', 'equitrio')
-   */
-  brand: string;
-
-  /**
-   * DynamoDB table name for the brand
+   * DynamoDB table name containing the brand's Subscription rows.
+   *
+   * Phase 9 (core → savvue consolidation): the checker runs against the
+   * declaring brand's own table — the separate core table no longer exists.
+   * The handler reads this as `DYNAMODB_TABLE_NAME`.
    */
   tableName: string;
 
   /**
-   * DynamoDB table ARN for the brand
+   * DynamoDB table ARN for IAM permissions
    */
   tableArn: string;
-}
-
-export interface TrialExpiryStackProps extends BaseStackProps {
-  /**
-   * DynamoDB table name for the core table containing subscriptions
-   */
-  coreTableName: string;
 
   /**
-   * DynamoDB table ARN for IAM permissions on core table
+   * Un-prefixed ECR service name to import the Lambda image from.
+   *
+   * The stack passes this through `naming.resourceName(...)` so the final
+   * repo name becomes `saas-{env}-{ecrServiceName}`.
+   *
+   * @default 'core-trial-expiry-checker' — the per-service repo (legacy
+   * "core" name kept through the Phase 9 consolidation to avoid an ECR
+   * re-seed; renaming is optional post-cutover cleanup).
    */
-  coreTableArn: string;
-
-  /**
-   * Brand table configurations for connection queries
-   */
-  brandTables: BrandTableConfig[];
+  ecrServiceName?: string;
 }
 
 /**
- * Stack that creates a scheduled Lambda function to expire trials and disconnect
- * non-primary Plaid connections.
+ * Stack that creates a scheduled Lambda function to expire trials.
  *
- * Uses DockerImageFunction from ECR (core-jobs repository) instead of inline code
- * to avoid the CloudFormation ZipFile 4096-char limit.
+ * Uses DockerImageFunction from ECR instead of inline code to avoid the
+ * CloudFormation ZipFile 4096-char limit.
  *
  * Creates:
- * - DockerImageFunction referencing core-jobs ECR repository
+ * - DockerImageFunction referencing the trial-expiry-checker ECR repository
  * - EventBridge rule scheduled daily at 00:00 UTC
- * - IAM permissions for DynamoDB, Secrets Manager, and ECR access
+ * - IAM permissions for DynamoDB and ECR access
  *
- * Trial expiry logic:
- * 1. Query GSI2 on core table for trialExpired=false AND trialEndsAt < now
+ * Trial expiry logic (Soft-Lock policy):
+ * 1. Query GSI2 on the brand table for trialExpired=false AND trialEndsAt < now
  * 2. Skip any with planStatus='active' (paid subscribers who had a trial)
  * 3. Update subscription: plan='free', planStatus=null, trialExpired=true
- * 4. For each user's connections in brand tables:
- *    - Non-primary connections: Call Plaid /item/remove
- *    - Primary connection: Remove webhooks via /item/webhook/update
+ *
+ * Plaid items are NOT disconnected here — the webapp gates the Accounts
+ * screen until the user removes enough connections to fit the new plan limit.
  */
 export class TrialExpiryStack extends BaseStack {
   public readonly expiryFunction: lambda.DockerImageFunction;
@@ -66,19 +59,14 @@ export class TrialExpiryStack extends BaseStack {
   constructor(scope: cdk.App, id: string, props: TrialExpiryStackProps) {
     super(scope, id, 'TrialExpiry', props);
 
-    const { coreTableName, coreTableArn, brandTables } = props;
+    const { tableName, tableArn } = props;
 
-    // Build brand table map for Lambda environment
-    const brandTableMap: Record<string, string> = {};
-    for (const bt of brandTables) {
-      brandTableMap[bt.brand] = bt.tableName;
-    }
-
-    // Look up the core-jobs ECR repo (created by EcrRepositoryStack)
+    // Look up the ECR repo containing the trial-expiry-checker image.
+    const ecrServiceName = props.ecrServiceName ?? 'core-trial-expiry-checker';
     const ecrRepository = ecr.Repository.fromRepositoryName(
       this,
-      'CoreJobsEcrRepo',
-      this.naming.resourceName('core-jobs'),
+      'TrialExpiryEcrRepo',
+      this.naming.resourceName(ecrServiceName),
     );
 
     // DockerImageFunction referencing ECR image
@@ -92,45 +80,20 @@ export class TrialExpiryStack extends BaseStack {
       timeout: cdk.Duration.minutes(5),
       reservedConcurrentExecutions: 1,
       environment: {
-        CORE_TABLE: coreTableName,
-        BRAND_TABLES: JSON.stringify(brandTableMap),
-        PLAID_SECRET_PREFIX: `${props.stackConfig.project}/${props.stackConfig.environment}`,
+        DYNAMODB_TABLE_NAME: tableName,
       },
-      description:
-        'Daily trial expiry checker — expires trials and disconnects extra Plaid connections',
+      description: 'Daily trial expiry checker — flips expired trials to free (Soft-Lock policy)',
     });
 
     // Grant ECR pull access
     ecrRepository.grantPull(this.expiryFunction);
 
-    // Grant DynamoDB permissions on core table
+    // Grant DynamoDB permissions on the brand table (GSI2 query + patch)
     this.expiryFunction.addToRolePolicy(
       new iam.PolicyStatement({
         effect: iam.Effect.ALLOW,
         actions: ['dynamodb:Query', 'dynamodb:UpdateItem'],
-        resources: [coreTableArn, `${coreTableArn}/index/*`],
-      }),
-    );
-
-    // Grant DynamoDB permissions on brand tables
-    for (const bt of brandTables) {
-      this.expiryFunction.addToRolePolicy(
-        new iam.PolicyStatement({
-          effect: iam.Effect.ALLOW,
-          actions: ['dynamodb:Query', 'dynamodb:UpdateItem'],
-          resources: [bt.tableArn, `${bt.tableArn}/index/*`],
-        }),
-      );
-    }
-
-    // Grant Secrets Manager access for Plaid credentials
-    this.expiryFunction.addToRolePolicy(
-      new iam.PolicyStatement({
-        effect: iam.Effect.ALLOW,
-        actions: ['secretsmanager:GetSecretValue', 'secretsmanager:DescribeSecret'],
-        resources: [
-          `arn:aws:secretsmanager:${props.stackConfig.region}:${props.stackConfig.accountId}:secret:*`,
-        ],
+        resources: [tableArn, `${tableArn}/index/*`],
       }),
     );
 

@@ -12,3 +12,4 @@ export * from './static-webapp-stack';
 export * from './subdomain-zone-stack';
 export * from './api-gateway-domain-stack';
 export * from './workload-params-stack';
+export * from './ses-email-stack';

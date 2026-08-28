@@ -12,11 +12,14 @@
  * Event Handler Rules:
  * When `eventHandlerBrands` is provided, creates rules for savvue only:
  * - transaction.categorized (productId=savvue) → SQS FIFO (dedup) → auto-matcher-handler-savvue Lambda
+ * - plaid.sync.completed   (productId=savvue) → SQS FIFO (dedup) → post-sync-handler-savvue Lambda
  *
  * The SQS FIFO queue uses content-based deduplication to collapse duplicate
  * events within a 5-minute window. When a user rapidly categorizes multiple
  * transactions with the same merchant, only one Lambda invocation fires per
- * unique user+merchant+category combination.
+ * unique user+merchant+category combination. The post-sync pipeline collapses
+ * back-to-back webhook syncs (e.g. INITIAL_UPDATE → HISTORICAL_UPDATE) for the
+ * same user inside a 30-second `coalesceBucket` window into one invocation.
  *
  * Note: subscription.upgraded, subscription.trial.expired, and subscription.tier.changed
  * rules were removed - tier is now read from JWT only.
@@ -36,7 +39,7 @@
  *     eventRules: [
  *       {
  *         name: 'trial-expired-savvue',
- *         source: 'api-core',
+ *         source: 'core-api',
  *         detailType: 'subscription.trial.expired',
  *         detailFilter: { productId: ['savvue'] },
  *         targetLambdaName: 'trial-expiry-savvue',
@@ -69,7 +72,7 @@ export interface EventRuleConfig {
   name: string;
 
   /**
-   * Event source (e.g., 'api-core', 'api-savvue')
+   * Event source (e.g., 'core-api', 'savvue-api')
    */
   source: string;
 
@@ -314,6 +317,7 @@ export class EventBridgeStack extends BaseStack {
     for (const brand of brands) {
       if (brand === 'savvue') {
         this.createAutoMatcherDedupPipeline(brand, lambdaFunctions);
+        this.createPostSyncDedupPipeline(brand, lambdaFunctions);
       }
     }
   }
@@ -345,7 +349,7 @@ export class EventBridgeStack extends BaseStack {
       eventBus: this.eventBus,
       ruleName: this.naming.resourceName(handlerName),
       eventPattern: {
-        source: ['api-savvue'],
+        source: ['savvue-api'],
         detailType: ['transaction.categorized'],
         detail: { productId: [brand] },
       },
@@ -364,6 +368,7 @@ export class EventBridgeStack extends BaseStack {
         inputTransformer: {
           inputPathsMap: {
             userId: '$.detail.userId',
+            accountId: '$.detail.payload.accountId',
             normalizedMerchant: '$.detail.payload.normalizedMerchant',
             categoryId: '$.detail.payload.categoryId',
             categoryName: '$.detail.payload.categoryName',
@@ -371,7 +376,7 @@ export class EventBridgeStack extends BaseStack {
             productId: '$.detail.productId',
           },
           inputTemplate:
-            '{"userId":"<userId>","normalizedMerchant":"<normalizedMerchant>","categoryId":"<categoryId>","categoryName":"<categoryName>","merchantName":"<merchantName>","productId":"<productId>"}',
+            '{"userId":"<userId>","accountId":"<accountId>","normalizedMerchant":"<normalizedMerchant>","categoryId":"<categoryId>","categoryName":"<categoryName>","merchantName":"<merchantName>","productId":"<productId>"}',
         },
       },
     ];
@@ -455,6 +460,147 @@ export class EventBridgeStack extends BaseStack {
 
     // 6. Wire Lambda event source mapping: SQS FIFO → Lambda
     //    Must wait for IAM policy — Lambda validates permissions at creation time
+    const sqsMapping = new lambda.EventSourceMapping(this, `${handlerName}SqsMapping`, {
+      target: lambdaFn,
+      eventSourceArn: dedupQueue.queueArn,
+      batchSize: 1,
+    });
+    sqsMapping.node.addDependency(sqsConsumePolicy);
+  }
+
+  /**
+   * Create the SQS FIFO dedup pipeline for post-sync:
+   * EventBridge (`plaid.sync.completed`) → SQS FIFO (content-based dedup) → Lambda
+   *
+   * The InputTransformer flattens `userId` + `coalesceBucket` (a 30-second
+   * window timestamp set by the producer in `publishPlaidSyncCompleted`) into
+   * the SQS body so two completions for the same user inside the same window
+   * collapse into one Lambda invocation. `MessageGroupId` is set to the
+   * `userId` so per-user ordering is preserved while different users fan out
+   * in parallel.
+   */
+  private createPostSyncDedupPipeline(
+    brand: string,
+    _lambdaFunctions: Map<string, lambda.IFunction> | undefined,
+  ): void {
+    const handlerName = `post-sync-handler-${brand}`;
+
+    // 1. Create FIFO SQS queue for deduplication
+    const dedupQueue = new sqs.Queue(this, `${handlerName}DedupQueue`, {
+      queueName: `${this.naming.resourceName(`post-sync-dedup-${brand}`)}.fifo`,
+      fifo: true,
+      contentBasedDeduplication: true,
+      deduplicationScope: sqs.DeduplicationScope.MESSAGE_GROUP,
+      fifoThroughputLimit: sqs.FifoThroughputLimit.PER_MESSAGE_GROUP_ID,
+      visibilityTimeout: cdk.Duration.seconds(120),
+      retentionPeriod: cdk.Duration.days(1),
+      encryption: sqs.QueueEncryption.SQS_MANAGED,
+    });
+
+    // 2. EventBridge rule for plaid.sync.completed (savvue only)
+    const rule = new events.Rule(this, `${handlerName}Rule`, {
+      eventBus: this.eventBus,
+      ruleName: this.naming.resourceName(handlerName),
+      eventPattern: {
+        source: ['savvue-api'],
+        detailType: ['plaid.sync.completed'],
+        detail: { productId: [brand] },
+      },
+    });
+
+    // 3. L1 escape hatch: dynamic MessageGroupId + InputTransformer keyed on
+    //    userId + coalesceBucket only (everything else is stripped so identical
+    //    user+bucket events hash to the same body).
+    const cfnRule = rule.node.defaultChild as events.CfnRule;
+    cfnRule.targets = [
+      {
+        id: `${handlerName}SqsTarget`,
+        arn: dedupQueue.queueArn,
+        sqsParameters: {
+          messageGroupId: '$.detail.userId',
+        },
+        inputTransformer: {
+          inputPathsMap: {
+            userId: '$.detail.userId',
+            productId: '$.detail.productId',
+            coalesceBucket: '$.detail.payload.coalesceBucket',
+          },
+          inputTemplate:
+            '{"userId":"<userId>","productId":"<productId>","coalesceBucket":"<coalesceBucket>"}',
+        },
+      },
+    ];
+
+    // 4. Allow EventBridge to send messages to the FIFO queue
+    dedupQueue.addToResourcePolicy(
+      new iam.PolicyStatement({
+        effect: iam.Effect.ALLOW,
+        principals: [new iam.ServicePrincipal('events.amazonaws.com')],
+        actions: ['sqs:SendMessage'],
+        resources: [dedupQueue.queueArn],
+        conditions: {
+          ArnEquals: {
+            'aws:SourceArn': rule.ruleArn,
+          },
+        },
+      }),
+    );
+
+    // 5. Wire the consumer Lambda. Import by ARN from SSM (not by construct
+    //    reference) to keep this stack decoupled from EventHandlerLambdaStack
+    //    and avoid cyclic CloudFormation cross-stack exports.
+    const lambdaArn = ssm.StringParameter.valueForStringParameter(
+      this,
+      this.naming.ssmParameterName('lambda', `${handlerName}-arn`),
+    );
+    const lambdaFn = lambda.Function.fromFunctionArn(
+      this,
+      `${handlerName}ImportedFunction`,
+      lambdaArn,
+    );
+
+    const executionRoleName = this.naming.resourceName(`${brand}-event-handler-role`);
+    const stackConfig = this.getStackConfig();
+    const executionRoleArn = `arn:aws:iam::${stackConfig.accountId}:role/${executionRoleName}`;
+
+    dedupQueue.addToResourcePolicy(
+      new iam.PolicyStatement({
+        effect: iam.Effect.ALLOW,
+        principals: [new iam.ArnPrincipal(executionRoleArn)],
+        actions: [
+          'sqs:ReceiveMessage',
+          'sqs:ChangeMessageVisibility',
+          'sqs:GetQueueUrl',
+          'sqs:DeleteMessage',
+          'sqs:GetQueueAttributes',
+        ],
+        resources: [dedupQueue.queueArn],
+      }),
+    );
+
+    const importedRole = iam.Role.fromRoleName(
+      this,
+      `${handlerName}ImportedRole`,
+      executionRoleName,
+    );
+    const sqsConsumePolicy = new iam.Policy(this, `${handlerName}SqsConsumePolicy`, {
+      roles: [importedRole],
+      statements: [
+        new iam.PolicyStatement({
+          effect: iam.Effect.ALLOW,
+          actions: [
+            'sqs:ReceiveMessage',
+            'sqs:ChangeMessageVisibility',
+            'sqs:GetQueueUrl',
+            'sqs:DeleteMessage',
+            'sqs:GetQueueAttributes',
+          ],
+          resources: [dedupQueue.queueArn],
+        }),
+      ],
+    });
+
+    // 6. Wire Lambda event source mapping: SQS FIFO → Lambda
     const sqsMapping = new lambda.EventSourceMapping(this, `${handlerName}SqsMapping`, {
       target: lambdaFn,
       eventSourceArn: dedupQueue.queueArn,
